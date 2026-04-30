@@ -260,16 +260,17 @@ def main() -> int:
             (
                 (execute_plan_followups.get("mp_best_download") or {}).get("template_names") == [
                     "query_execution_followup",
+                    "query_mp_ingest_status",
                     "query_mp_download_history",
                     "query_mp_lifecycle_status",
-                    "query_mp_download_tasks",
+                    "query_mp_local_diagnose",
                 ]
                 and (execute_plan_followups.get("mp_best_download") or {}).get("recommended_action") == "query_execution_followup"
                 and bool((execute_plan_followups.get("mp_best_download") or {}).get("follow_up_hint"))
                 and (execute_plan_followups.get("mp_subscribe") or {}).get("template_names") == [
                     "query_execution_followup",
                     "query_mp_subscribes",
-                    "query_mp_lifecycle_status",
+                    "query_mp_ingest_status",
                     "start_mp_media_search",
                 ]
                 and (execute_plan_followups.get("mp_subscribe") or {}).get("recommended_action") == "query_execution_followup"
@@ -277,7 +278,7 @@ def main() -> int:
                 and (execute_plan_followups.get("hdhive_unlock_selected") or {}).get("template_names") == [
                     "query_execution_followup",
                     "query_mp_transfer_history",
-                    "inspect_session_state",
+                    "query_mp_local_diagnose",
                 ]
                 and (execute_plan_followups.get("hdhive_unlock_selected") or {}).get("recommended_action") == "query_execution_followup"
                 and bool((execute_plan_followups.get("hdhive_unlock_selected") or {}).get("follow_up_hint"))
@@ -349,6 +350,21 @@ def main() -> int:
                 and "mp_transfer_history" in followup_names
             ),
             str(followup_templates.get("message") or ""),
+        )
+        local_ingest_templates = request_templates(base_url, api_key, "local_ingest")
+        local_ingest_templates_data = data(local_ingest_templates)
+        local_ingest_names = local_ingest_templates_data.get("selected_names") or []
+        assert_ok(
+            "local_ingest_request_templates",
+            bool(
+                local_ingest_templates.get("success")
+                and local_ingest_templates_data.get("ok")
+                and local_ingest_templates_data.get("selected_recipe") == "local_ingest"
+                and "mp_ingest_status" in local_ingest_names
+                and "mp_local_diagnose" in local_ingest_names
+                and "mp_recent_activity" in local_ingest_names
+            ),
+            str(local_ingest_templates.get("message") or ""),
         )
 
         status = route(base_url, api_key, sessions[0], "115状态")
@@ -612,8 +628,46 @@ def main() -> int:
                 json.dumps(lifecycle_recover_data.get("recovery") or {}, ensure_ascii=False),
             )
 
+            ingest_status = route(base_url, api_key, sessions[4], f"入库状态{args.keyword}")
+            ingest_status_data = assert_route_action("route_ingest_status_compact", ingest_status, "mp_ingest_status")
+            assert_ok(
+                "route_ingest_status_has_diagnosis",
+                isinstance(ingest_status_data.get("diagnosis_summary"), dict)
+                and bool((ingest_status_data.get("diagnosis_summary") or {}).get("stage")),
+                json.dumps(ingest_status_data.get("diagnosis_summary") or {}, ensure_ascii=False)[:240],
+            )
+
             transfer_failed = route(base_url, api_key, sessions[4], f"入库失败{args.keyword}")
-            assert_route_action("route_transfer_failed_compact", transfer_failed, "mp_transfer_history")
+            transfer_failed_data = assert_route_action("route_transfer_failed_compact", transfer_failed, "mp_ingest_failures")
+            assert_ok(
+                "route_transfer_failed_has_diagnosis",
+                isinstance(transfer_failed_data.get("diagnosis_summary"), dict),
+                json.dumps(transfer_failed_data.get("diagnosis_summary") or {}, ensure_ascii=False)[:240],
+            )
+
+            recent_ingest = route(base_url, api_key, sessions[4], "最近入库")
+            recent_ingest_data = assert_route_action("route_recent_ingest_compact", recent_ingest, "mp_recent_activity")
+            assert_ok(
+                "route_recent_ingest_has_transfer_history",
+                isinstance((recent_ingest_data.get("transfer_history") or {}).get("items"), list),
+                json.dumps(recent_ingest_data.get("transfer_history") or {}, ensure_ascii=False)[:240],
+            )
+
+            recent_download = route(base_url, api_key, sessions[4], "最近下载")
+            recent_download_data = assert_route_action("route_recent_download_compact", recent_download, "mp_recent_activity")
+            assert_ok(
+                "route_recent_download_has_download_history",
+                isinstance((recent_download_data.get("download_history") or {}).get("items"), list),
+                json.dumps(recent_download_data.get("download_history") or {}, ensure_ascii=False)[:240],
+            )
+
+            local_diagnose = route(base_url, api_key, sessions[4], f"为什么没入库{args.keyword}")
+            local_diagnose_data = assert_route_action("route_local_diagnose_compact", local_diagnose, "mp_local_diagnose")
+            assert_ok(
+                "route_local_diagnose_has_diagnosis",
+                isinstance(local_diagnose_data.get("diagnosis_summary"), dict),
+                json.dumps(local_diagnose_data.get("diagnosis_summary") or {}, ensure_ascii=False)[:240],
+            )
 
             movie_recommend = route(base_url, api_key, sessions[5], "热门电影")
             assert_route_action("route_recommend_movie", movie_recommend, "mp_recommendations")

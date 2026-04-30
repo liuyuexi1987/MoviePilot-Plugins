@@ -12,7 +12,7 @@ CONFIG_PATH = os.path.expanduser(CONFIG_PATH_DISPLAY)
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXTERNAL_AGENT_GUIDE_PATH = os.path.join(SKILL_DIR, "EXTERNAL_AGENTS.md")
 WORKBUDDY_GUIDE_PATH = EXTERNAL_AGENT_GUIDE_PATH
-HELPER_VERSION = "0.1.27"
+HELPER_VERSION = "0.1.28"
 HELPER_COMMANDS = [
     "auto",
     "commands",
@@ -166,6 +166,7 @@ def external_agent_payload():
         "mp_pt_recipe_command": "python3 scripts/aro_request.py templates --recipe mp_pt --compact",
         "mp_recommend_recipe_command": "python3 scripts/aro_request.py templates --recipe recommend --compact",
         "post_execute_recipe_command": "python3 scripts/aro_request.py templates --recipe followup --compact",
+        "local_ingest_recipe_command": "python3 scripts/aro_request.py templates --recipe local_ingest --compact",
         "startup_command": "python3 scripts/aro_request.py startup",
         "route_command": "python3 scripts/aro_request.py route '<用户原始指令>' --session 'agent:<会话ID>'",
         "pick_command": "python3 scripts/aro_request.py pick <编号> --session 'agent:<会话ID>'",
@@ -269,6 +270,7 @@ def compact(data):
             "scoring_policy",
             "preference_status",
             "score_summary",
+            "diagnosis_summary",
             "preferences",
             "needs_onboarding",
             "initialized",
@@ -469,6 +471,10 @@ def recipe_helper_commands(recipe_summary, recipe_request):
         execute = "python3 scripts/aro_request.py workflow --workflow mp_recommend --source tmdb_trending --media-type all --limit 20"
     elif first_template == "mp_recommend_search":
         execute = "python3 scripts/aro_request.py workflow --workflow mp_recommend_search --source tmdb_trending --media-type all --choice <编号> --mode mp --limit 20"
+    elif first_template == "mp_ingest_status":
+        execute = "python3 scripts/aro_request.py workflow --workflow mp_ingest_status --keyword <keyword>"
+    elif first_template == "mp_local_diagnose":
+        execute = "python3 scripts/aro_request.py workflow --workflow mp_local_diagnose --keyword <keyword>"
     elif first_endpoint:
         execute = f"# {first_method or 'CALL'} {first_endpoint}"
 
@@ -527,6 +533,8 @@ def selftest_result():
     check("mp_pt_recipe_execute_command", mp_pt_commands.get("execute_helper_command") == "python3 scripts/aro_request.py workflow --workflow mp_media_detail --keyword <keyword>")
     mp_recommend_commands = recipe_helper_commands({"first_template": "mp_recommend"}, "recommend")
     check("mp_recommend_recipe_execute_command", mp_recommend_commands.get("execute_helper_command") == "python3 scripts/aro_request.py workflow --workflow mp_recommend --source tmdb_trending --media-type all --limit 20")
+    local_ingest_commands = recipe_helper_commands({"first_template": "mp_ingest_status"}, "local_ingest")
+    check("local_ingest_recipe_execute_command", local_ingest_commands.get("execute_helper_command") == "python3 scripts/aro_request.py workflow --workflow mp_ingest_status --keyword <keyword>")
     maintain_commands = recipe_helper_commands({"first_template": "maintain_preview"}, "maintain")
     check("maintain_preview_command", maintain_commands.get("execute_helper_command") == "python3 scripts/aro_request.py maintain")
     maintain_execute_commands = recipe_helper_commands({"first_template": "maintain_execute"}, "maintain")
@@ -671,6 +679,7 @@ def selftest_result():
     check("external_agent_payload_has_mp_pt_recipe", bool(external_agent.get("mp_pt_recipe_command")))
     check("external_agent_payload_has_mp_recommend_recipe", bool(external_agent.get("mp_recommend_recipe_command")))
     check("external_agent_payload_has_post_execute_recipe", bool(external_agent.get("post_execute_recipe_command")))
+    check("external_agent_payload_has_local_ingest_recipe", bool(external_agent.get("local_ingest_recipe_command")))
 
     catalog = commands_catalog()
     catalog_commands = catalog.get("commands") or []

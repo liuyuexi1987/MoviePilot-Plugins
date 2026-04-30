@@ -115,7 +115,7 @@ class AgentResourceOfficer(_PluginBase):
     plugin_name = "Agent影视助手"
     plugin_desc = "统一承接影巢、115、夸克、飞书与智能体入口的资源工作流主插件。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png"
-    plugin_version = "0.2.52"
+    plugin_version = "0.2.53"
     request_templates_schema_version = "request_templates.v1"
     plugin_author = "liuyuexi1987"
     author_url = "https://github.com/liuyuexi1987"
@@ -4590,6 +4590,216 @@ class AgentResourceOfficer(_PluginBase):
             }),
         }
 
+    def _assistant_mp_detect_stage(
+        self,
+        *,
+        task_items: List[Dict[str, Any]],
+        download_items: List[Dict[str, Any]],
+        transfer_items: List[Dict[str, Any]],
+    ) -> str:
+        def has_term(value: Any, terms: List[str]) -> bool:
+            text = self._clean_text(value).lower()
+            return bool(text) and any(term in text for term in terms)
+
+        failed_terms = ["失败", "错误", "error", "fail", "未识别", "识别失败", "入库失败", "整理失败"]
+        success_terms = ["成功", "完成", "已入库", "已整理", "已转移", "imported", "success", "completed"]
+        running_terms = ["处理中", "进行中", "转移中", "整理中", "入库中", "等待", "队列", "pending", "running"]
+
+        for item in transfer_items:
+            if has_term(item.get("status_text") or item.get("status"), failed_terms):
+                return "failed"
+        for item in download_items:
+            if has_term(item.get("transfer_status_text") or item.get("transfer_status"), failed_terms):
+                return "failed"
+
+        if task_items:
+            return "downloading"
+
+        for item in transfer_items:
+            status_value = item.get("status_text") or item.get("status")
+            if has_term(status_value, success_terms):
+                return "imported"
+            if has_term(status_value, running_terms):
+                return "transferring"
+
+        for item in download_items:
+            transfer_value = item.get("transfer_status_text") or item.get("transfer_status")
+            if has_term(transfer_value, success_terms):
+                return "imported"
+            if has_term(transfer_value, running_terms):
+                return "transferring"
+
+        if transfer_items:
+            return "transferring"
+        if download_items:
+            return "downloaded"
+        return "not_found"
+
+    def _assistant_mp_diagnosis_summary(
+        self,
+        *,
+        keyword: str,
+        hash_value: str,
+        task_items: List[Dict[str, Any]],
+        download_items: List[Dict[str, Any]],
+        transfer_items: List[Dict[str, Any]],
+        force_failed: bool = False,
+    ) -> Dict[str, Any]:
+        stage = "failed" if force_failed else self._assistant_mp_detect_stage(
+            task_items=task_items,
+            download_items=download_items,
+            transfer_items=transfer_items,
+        )
+        matched_count = len(task_items) + len(download_items) + len(transfer_items)
+        matched = matched_count > 0
+        evidence: List[str] = []
+        risk_reasons: List[str] = []
+        recommended_action = ""
+        follow_up_hint = ""
+        confidence = 0.0
+
+        if task_items:
+            first_task = task_items[0]
+            evidence.append(
+                f"下载任务 {self._clean_text(first_task.get('title')) or '-'} | "
+                f"{self._clean_text(first_task.get('progress')) or '-'} | "
+                f"{self._clean_text(first_task.get('state')) or '-'}"
+            )
+        if download_items:
+            first_download = download_items[0]
+            evidence.append(
+                f"下载历史 {self._clean_text(first_download.get('title')) or '-'} | "
+                f"{self._clean_text(first_download.get('date')) or '-'} | "
+                f"{self._clean_text(first_download.get('transfer_status_text')) or '-'}"
+            )
+            transfer_status_text = self._clean_text(first_download.get("transfer_status_text"))
+            if transfer_status_text and any(word in transfer_status_text for word in ["失败", "错误"]):
+                risk_reasons.append(f"下载历史显示整理状态异常：{transfer_status_text}")
+        if transfer_items:
+            first_transfer = transfer_items[0]
+            evidence.append(
+                f"整理历史 {self._clean_text(first_transfer.get('title')) or '-'} | "
+                f"{self._clean_text(first_transfer.get('status_text')) or '-'} | "
+                f"{self._clean_text(first_transfer.get('date')) or '-'}"
+            )
+            status_text = self._clean_text(first_transfer.get("status_text"))
+            if status_text and any(word in status_text for word in ["失败", "错误"]):
+                risk_reasons.append(f"整理历史存在失败记录：{status_text}")
+
+        if stage == "downloading":
+            confidence = 0.95
+            recommended_action = "query_mp_download_tasks"
+            follow_up_hint = "资源仍在下载阶段，优先查看下载任务进度。"
+        elif stage == "downloaded":
+            confidence = 0.85
+            recommended_action = "query_mp_transfer_history"
+            follow_up_hint = "已找到下载历史，但还没有明确的入库记录，下一步查看整理/入库历史。"
+        elif stage == "transferring":
+            confidence = 0.9
+            recommended_action = "query_mp_transfer_history"
+            follow_up_hint = "资源已经进入整理/入库链路，优先查看最近整理历史。"
+        elif stage == "imported":
+            confidence = 0.98
+            recommended_action = "query_mp_transfer_history"
+            follow_up_hint = "已经找到成功入库线索，如需确认最终落地可查看最近整理历史。"
+        elif stage == "failed":
+            confidence = 0.92 if matched else 0.65
+            recommended_action = "query_mp_local_diagnose"
+            follow_up_hint = "已发现失败线索，建议进入本地诊断汇总失败原因和下一步处理建议。"
+        elif stage == "not_found":
+            confidence = 0.95
+            recommended_action = "query_mp_download_history"
+            follow_up_hint = "当前没有找到相关下载任务、下载历史或整理记录。先检查是否真的提交过下载/订阅。"
+        else:
+            confidence = 0.5
+            recommended_action = "query_mp_lifecycle_status"
+            follow_up_hint = "状态不足以判断，建议继续查看生命周期聚合结果。"
+
+        if hash_value:
+            evidence.append(f"Hash 检索：{hash_value}")
+        elif keyword:
+            evidence.append(f"关键词检索：{keyword}")
+
+        return {
+            "status": "ok" if matched else "not_found",
+            "matched": matched,
+            "stage": stage,
+            "confidence": confidence,
+            "evidence": evidence[:6],
+            "risk_reasons": risk_reasons[:6],
+            "recommended_action": recommended_action,
+            "follow_up_hint": follow_up_hint,
+        }
+
+    def _assistant_mp_diagnosis_followups(
+        self,
+        *,
+        session: str,
+        session_id: str,
+        keyword: str,
+        hash_value: str,
+        preferred: str,
+    ) -> Tuple[List[str], List[Dict[str, Any]]]:
+        base_body = {
+            "session": session,
+            "session_id": session_id,
+        }
+        keyword_body = dict(base_body)
+        if keyword:
+            keyword_body["keyword"] = keyword
+        if hash_value:
+            keyword_body["hash"] = hash_value
+        action_order = [preferred]
+        for name in ["query_mp_lifecycle_status", "query_mp_download_history", "query_mp_transfer_history", "query_mp_local_diagnose"]:
+            if name not in action_order:
+                action_order.append(name)
+        templates = [
+            self._assistant_action_template(
+                name=name,
+                description={
+                    "query_mp_lifecycle_status": "聚合查看下载任务、下载历史和整理/入库历史",
+                    "query_mp_download_history": "查看下载历史，并确认是否已经提交过下载",
+                    "query_mp_transfer_history": "查看整理/入库历史，确认是否已经落库或失败",
+                    "query_mp_local_diagnose": "汇总本地/PT 链路的失败线索与处理建议",
+                }.get(name, name),
+                endpoint="/api/v1/plugin/AgentResourceOfficer/assistant/action",
+                tool="agent_resource_officer_execute_action",
+                body={**keyword_body, "name": name, "compact": True},
+            )
+            for name in action_order[:4]
+        ]
+        return action_order[:4], templates
+
+    def _assistant_mp_recent_activity_summary(
+        self,
+        *,
+        download_items: List[Dict[str, Any]],
+        transfer_items: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        evidence: List[str] = []
+        for item in download_items[:3]:
+            evidence.append(
+                f"下载 {self._clean_text(item.get('title')) or '-'} | "
+                f"{self._clean_text(item.get('date')) or '-'} | "
+                f"{self._clean_text(item.get('transfer_status_text')) or '-'}"
+            )
+        for item in transfer_items[:3]:
+            evidence.append(
+                f"入库 {self._clean_text(item.get('title')) or '-'} | "
+                f"{self._clean_text(item.get('date')) or '-'} | "
+                f"{self._clean_text(item.get('status_text')) or '-'}"
+            )
+        return {
+            "status": "ok" if (download_items or transfer_items) else "not_found",
+            "matched": bool(download_items or transfer_items),
+            "stage": "unknown",
+            "confidence": 0.8 if (download_items or transfer_items) else 0.95,
+            "evidence": evidence[:6],
+            "risk_reasons": [],
+            "recommended_action": "query_mp_lifecycle_status",
+            "follow_up_hint": "先从最近活动里挑目标，再继续看单个资源的生命周期或本地诊断。",
+        }
+
     async def _assistant_mp_lifecycle_status(
         self,
         *,
@@ -4621,7 +4831,25 @@ class AgentResourceOfficer(_PluginBase):
         download_items = download_result.get("items") if isinstance(download_result.get("items"), list) else []
         transfer_items = transfer_result.get("items") if isinstance(transfer_result.get("items"), list) else []
         keyword = title or hash_value or "全部"
+        diagnosis_summary = self._assistant_mp_diagnosis_summary(
+            keyword=title,
+            hash_value=hash_value,
+            task_items=task_items,
+            download_items=download_items,
+            transfer_items=transfer_items,
+        )
+        next_actions, action_templates = self._assistant_mp_diagnosis_followups(
+            session=session,
+            session_id=cache_key,
+            keyword=title,
+            hash_value=hash_value,
+            preferred=self._clean_text(diagnosis_summary.get("recommended_action")) or "query_mp_download_history",
+        )
         lines = [f"MP 生命周期追踪：{keyword}"]
+        lines.append(
+            f"结论：{diagnosis_summary.get('stage') or 'unknown'} | "
+            f"置信度 {int(float(diagnosis_summary.get('confidence') or 0) * 100)}%"
+        )
         lines.append(f"活动下载任务：{len(task_items)} 条；下载历史：{download_result.get('total', len(download_items))} 条；整理历史：{transfer_result.get('total', len(transfer_items))} 条")
         if task_items:
             lines.append("下载任务：")
@@ -4674,7 +4902,234 @@ class AgentResourceOfficer(_PluginBase):
                     "total": self._safe_int(transfer_result.get("total"), len(transfer_items)),
                     "items": transfer_items,
                 },
+                "diagnosis_summary": diagnosis_summary,
+                "recommended_action": diagnosis_summary.get("recommended_action"),
+                "follow_up_hint": diagnosis_summary.get("follow_up_hint"),
+                "next_actions": next_actions,
+                "action_templates": action_templates,
             }),
+        }
+
+    async def _assistant_mp_ingest_status(
+        self,
+        *,
+        session: str,
+        cache_key: str,
+        title: str = "",
+        hash_value: str = "",
+        limit: int = 5,
+    ) -> Dict[str, Any]:
+        lifecycle = await self._assistant_mp_lifecycle_status(
+            session=session,
+            cache_key=cache_key,
+            title=title,
+            hash_value=hash_value,
+            limit=limit,
+        )
+        lifecycle_data = dict((lifecycle or {}).get("data") or {})
+        diagnosis_summary = dict(lifecycle_data.get("diagnosis_summary") or {})
+        stage = self._clean_text(diagnosis_summary.get("stage")) or "unknown"
+        lines = [
+            f"本地/PT 入库状态：{self._clean_text(title or hash_value) or '全部'}",
+            f"当前阶段：{stage}",
+        ]
+        if diagnosis_summary.get("evidence"):
+            lines.append("证据：")
+            for item in (diagnosis_summary.get("evidence") or [])[:5]:
+                lines.append(f"- {item}")
+        if diagnosis_summary.get("risk_reasons"):
+            lines.append("风险：")
+            for item in (diagnosis_summary.get("risk_reasons") or [])[:5]:
+                lines.append(f"- {item}")
+        if diagnosis_summary.get("follow_up_hint"):
+            lines.append(f"建议：{diagnosis_summary.get('follow_up_hint')}")
+        lifecycle_data["action"] = "mp_ingest_status"
+        return {
+            "success": bool(lifecycle.get("success")),
+            "message": "\n".join(lines),
+            "data": lifecycle_data,
+        }
+
+    async def _assistant_mp_ingest_failures(
+        self,
+        *,
+        session: str,
+        cache_key: str,
+        title: str = "",
+        limit: int = 10,
+        page: int = 1,
+    ) -> Dict[str, Any]:
+        result = self._ensure_feishu_channel()._query_transfer_history(
+            title=title,
+            status="failed",
+            limit=max(1, min(50, self._safe_int(limit, 10))),
+            page=max(1, self._safe_int(page, 1)),
+        )
+        items = result.get("items") if isinstance(result.get("items"), list) else []
+        diagnosis_summary = self._assistant_mp_diagnosis_summary(
+            keyword=title,
+            hash_value="",
+            task_items=[],
+            download_items=[],
+            transfer_items=items,
+            force_failed=bool(items),
+        )
+        next_actions, action_templates = self._assistant_mp_diagnosis_followups(
+            session=session,
+            session_id=cache_key,
+            keyword=title,
+            hash_value="",
+            preferred="query_mp_local_diagnose",
+        )
+        lines = [f"本地/PT 失败线索：{self._clean_text(title) or '最近失败'}"]
+        if items:
+            for item in items[: min(len(items), 6)]:
+                lines.append(
+                    f"{item.get('index')}. {item.get('title')} ({item.get('year') or '-'}) | "
+                    f"{item.get('status_text') or '-'} | {item.get('date') or '-'}"
+                )
+        else:
+            lines.append("未找到匹配的整理/入库失败记录。")
+        self._save_session(cache_key, {
+            "kind": "assistant_mp_ingest_failures",
+            "stage": "ingest_failures",
+            "keyword": title or "failed",
+            "items": items,
+            "target_path": "",
+        })
+        return {
+            "success": bool(result.get("success")),
+            "message": "\n".join(lines),
+            "data": self._assistant_response_data(session=session, data={
+                "action": "mp_ingest_failures",
+                "ok": bool(result.get("success")),
+                "source_type": "moviepilot_transfer_failures",
+                "title": title,
+                "status": "failed",
+                "items": items,
+                "total": self._safe_int(result.get("total"), len(items)),
+                "page": self._safe_int(result.get("page"), page),
+                "limit": self._safe_int(result.get("limit"), limit),
+                "diagnosis_summary": diagnosis_summary,
+                "recommended_action": diagnosis_summary.get("recommended_action"),
+                "follow_up_hint": diagnosis_summary.get("follow_up_hint"),
+                "next_actions": next_actions,
+                "action_templates": action_templates,
+            }),
+        }
+
+    async def _assistant_mp_recent_activity(
+        self,
+        *,
+        session: str,
+        cache_key: str,
+        limit: int = 10,
+        download_only: bool = False,
+        transfer_only: bool = False,
+    ) -> Dict[str, Any]:
+        safe_limit = max(1, min(20, self._safe_int(limit, 10)))
+        channel = self._ensure_feishu_channel()
+        download_result = {"success": True, "items": [], "total": 0}
+        transfer_result = {"success": True, "items": [], "total": 0}
+        if not transfer_only:
+            download_result = channel._query_download_history(title="", hash_value="", limit=safe_limit, page=1)
+        if not download_only:
+            transfer_result = channel._query_transfer_history(title="", status="all", limit=safe_limit, page=1)
+        download_items = download_result.get("items") if isinstance(download_result.get("items"), list) else []
+        transfer_items = transfer_result.get("items") if isinstance(transfer_result.get("items"), list) else []
+        diagnosis_summary = self._assistant_mp_recent_activity_summary(
+            download_items=download_items,
+            transfer_items=transfer_items,
+        )
+        next_actions, action_templates = self._assistant_mp_diagnosis_followups(
+            session=session,
+            session_id=cache_key,
+            keyword="",
+            hash_value="",
+            preferred="query_mp_lifecycle_status",
+        )
+        lines = ["最近本地/PT 活动："]
+        if download_items:
+            lines.append(f"最近下载：{len(download_items)} 条")
+        if transfer_items:
+            lines.append(f"最近入库：{len(transfer_items)} 条")
+        if not download_items and not transfer_items:
+            lines.append("当前没有可展示的最近下载或入库活动。")
+        self._save_session(cache_key, {
+            "kind": "assistant_mp_recent_activity",
+            "stage": "recent_activity",
+            "keyword": "recent_activity",
+            "items": {
+                "download_history": download_items,
+                "transfer_history": transfer_items,
+            },
+            "target_path": "",
+        })
+        return {
+            "success": bool(download_result.get("success")) and bool(transfer_result.get("success")),
+            "message": "\n".join(lines),
+            "data": self._assistant_response_data(session=session, data={
+                "action": "mp_recent_activity",
+                "ok": bool(download_result.get("success")) and bool(transfer_result.get("success")),
+                "download_history": {
+                    "ok": bool(download_result.get("success")),
+                    "total": self._safe_int(download_result.get("total"), len(download_items)),
+                    "items": download_items,
+                },
+                "transfer_history": {
+                    "ok": bool(transfer_result.get("success")),
+                    "total": self._safe_int(transfer_result.get("total"), len(transfer_items)),
+                    "items": transfer_items,
+                },
+                "diagnosis_summary": diagnosis_summary,
+                "recommended_action": diagnosis_summary.get("recommended_action"),
+                "follow_up_hint": diagnosis_summary.get("follow_up_hint"),
+                "next_actions": next_actions,
+                "action_templates": action_templates,
+            }),
+        }
+
+    async def _assistant_mp_local_diagnose(
+        self,
+        *,
+        session: str,
+        cache_key: str,
+        title: str = "",
+        hash_value: str = "",
+        limit: int = 5,
+    ) -> Dict[str, Any]:
+        lifecycle = await self._assistant_mp_lifecycle_status(
+            session=session,
+            cache_key=cache_key,
+            title=title,
+            hash_value=hash_value,
+            limit=limit,
+        )
+        lifecycle_data = dict((lifecycle or {}).get("data") or {})
+        diagnosis_summary = dict(lifecycle_data.get("diagnosis_summary") or {})
+        stage = self._clean_text(diagnosis_summary.get("stage")) or "unknown"
+        risk_reasons = diagnosis_summary.get("risk_reasons") or []
+        evidence = diagnosis_summary.get("evidence") or []
+        message_lines = [
+            f"本地诊断：{self._clean_text(title or hash_value) or '全部'}",
+            f"判断阶段：{stage}",
+            f"是否命中记录：{'是' if diagnosis_summary.get('matched') else '否'}",
+        ]
+        if evidence:
+            message_lines.append("诊断证据：")
+            for item in evidence[:6]:
+                message_lines.append(f"- {item}")
+        if risk_reasons:
+            message_lines.append("风险与失败线索：")
+            for item in risk_reasons[:6]:
+                message_lines.append(f"- {item}")
+        if diagnosis_summary.get("follow_up_hint"):
+            message_lines.append(f"建议动作：{diagnosis_summary.get('follow_up_hint')}")
+        lifecycle_data["action"] = "mp_local_diagnose"
+        return {
+            "success": bool(lifecycle.get("success")),
+            "message": "\n".join(message_lines),
+            "data": lifecycle_data,
         }
 
     async def _assistant_mp_recommendations(
@@ -7038,6 +7493,10 @@ class AgentResourceOfficer(_PluginBase):
                 "has_pending_p115": bool(item.get("has_pending_p115")),
                 "next_actions": item.get("next_actions") or [],
             })
+            if isinstance(item.get("score_summary"), dict):
+                results[-1]["score_summary"] = item.get("score_summary")
+            if isinstance(item.get("diagnosis_summary"), dict):
+                results[-1]["diagnosis_summary"] = item.get("diagnosis_summary")
         return results
 
     def _assistant_plan_execute_followup(
@@ -7073,8 +7532,8 @@ class AgentResourceOfficer(_PluginBase):
         clean_plan_id = self._clean_text(plan_id)
 
         if workflow_name in {"mp_best_download", "mp_download", "mp_search_download", "mp_download_control"}:
-            next_actions = ["query_execution_followup", "query_mp_download_history", "query_mp_lifecycle_status", "query_mp_download_tasks"]
-            follow_up_hint = "可以先执行统一后续追踪；它会自动去查下载历史，再继续判断是否已整理/入库。"
+            next_actions = ["query_execution_followup", "query_mp_ingest_status", "query_mp_lifecycle_status", "query_mp_local_diagnose"]
+            follow_up_hint = "可以先执行统一后续追踪；它会自动去查下载历史，再继续判断是否已整理、已入库或失败。"
             templates = [
                 self._assistant_action_template(
                     name="query_execution_followup",
@@ -7086,6 +7545,13 @@ class AgentResourceOfficer(_PluginBase):
                         "name": "query_execution_followup",
                         **({"plan_id": clean_plan_id} if clean_plan_id else {}),
                     },
+                ),
+                self._assistant_action_template(
+                    name="query_mp_ingest_status",
+                    description="按关键词判断当前处于下载、整理、入库还是失败阶段",
+                    endpoint="/api/v1/plugin/AgentResourceOfficer/assistant/action",
+                    tool="agent_resource_officer_execute_action",
+                    body={**base_state, "name": "query_mp_ingest_status", "keyword": keyword_value, "limit": 5},
                 ),
                 self._assistant_action_template(
                     name="query_mp_download_history",
@@ -7102,16 +7568,16 @@ class AgentResourceOfficer(_PluginBase):
                     body={**base_state, "name": "query_mp_lifecycle_status", "keyword": keyword_value, "limit": 5},
                 ),
                 self._assistant_action_template(
-                    name="query_mp_download_tasks",
-                    description="查看当前 MP 下载任务状态",
+                    name="query_mp_local_diagnose",
+                    description="汇总失败线索并给出本地/PT 入库诊断建议",
                     endpoint="/api/v1/plugin/AgentResourceOfficer/assistant/action",
                     tool="agent_resource_officer_execute_action",
-                    body={**base_state, "name": "query_mp_download_tasks", "status": "all", "title": keyword},
+                    body={**base_state, "name": "query_mp_local_diagnose", "keyword": keyword_value, "limit": 5},
                 ),
             ]
         elif workflow_name in {"mp_subscribe", "mp_subscribe_and_search", "mp_subscribe_control"}:
-            next_actions = ["query_execution_followup", "query_mp_subscribes", "query_mp_lifecycle_status", "start_mp_media_search"]
-            follow_up_hint = "可以先执行统一后续追踪；它会自动查订阅列表，再决定是否继续搜索或追踪生命周期。"
+            next_actions = ["query_execution_followup", "query_mp_subscribes", "query_mp_ingest_status", "start_mp_media_search"]
+            follow_up_hint = "可以先执行统一后续追踪；它会自动查订阅列表，再决定是否继续搜索或进入入库追踪。"
             templates = [
                 self._assistant_action_template(
                     name="query_execution_followup",
@@ -7132,11 +7598,11 @@ class AgentResourceOfficer(_PluginBase):
                     body={**base_state, "name": "query_mp_subscribes", "status": "all", "keyword": keyword, "limit": 20},
                 ),
                 self._assistant_action_template(
-                    name="query_mp_lifecycle_status",
-                    description="继续追踪下载任务、下载历史和整理/入库状态",
+                    name="query_mp_ingest_status",
+                    description="按关键词判断当前处于下载、整理、入库还是失败阶段",
                     endpoint="/api/v1/plugin/AgentResourceOfficer/assistant/action",
                     tool="agent_resource_officer_execute_action",
-                    body={**base_state, "name": "query_mp_lifecycle_status", "keyword": keyword_value, "limit": 5},
+                    body={**base_state, "name": "query_mp_ingest_status", "keyword": keyword_value, "limit": 5},
                 ),
                 self._assistant_action_template(
                     name="start_mp_media_search",
@@ -7147,8 +7613,8 @@ class AgentResourceOfficer(_PluginBase):
                 ),
             ]
         elif workflow_name in {"share_transfer", "pansou_transfer_selected", "hdhive_unlock", "hdhive_unlock_selected"}:
-            next_actions = ["query_execution_followup", "query_mp_transfer_history", "inspect_session_state"]
-            follow_up_hint = "可以先执行统一后续追踪；它会自动查整理/入库历史，失败时再回看当前会话状态。"
+            next_actions = ["query_execution_followup", "query_mp_transfer_history", "query_mp_local_diagnose"]
+            follow_up_hint = "可以先执行统一后续追踪；它会自动查整理/入库历史，失败时再切到本地诊断。"
             templates = [
                 self._assistant_action_template(
                     name="query_execution_followup",
@@ -7169,11 +7635,11 @@ class AgentResourceOfficer(_PluginBase):
                     body={**base_state, "name": "query_mp_transfer_history", "keyword": keyword, "status": "all", "limit": 10},
                 ),
                 self._assistant_action_template(
-                    name="inspect_session_state",
-                    description="重新获取当前会话详细状态",
-                    endpoint="/api/v1/plugin/AgentResourceOfficer/assistant/session",
-                    tool="agent_resource_officer_session_state",
-                    body=base_state,
+                    name="query_mp_local_diagnose",
+                    description="汇总下载后未入库或整理失败的诊断线索",
+                    endpoint="/api/v1/plugin/AgentResourceOfficer/assistant/action",
+                    tool="agent_resource_officer_execute_action",
+                    body={**base_state, "name": "query_mp_local_diagnose", "keyword": keyword_value, "limit": 5},
                 ),
             ]
 
@@ -7307,6 +7773,8 @@ class AgentResourceOfficer(_PluginBase):
             payload["needs_onboarding"] = bool(data["preference_status"].get("needs_onboarding"))
         if isinstance(data.get("score_summary"), dict):
             payload["score_summary"] = data.get("score_summary")
+        if isinstance(data.get("diagnosis_summary"), dict):
+            payload["diagnosis_summary"] = data.get("diagnosis_summary")
         return payload
 
     def _assistant_plan_execute_compact_response(self, result: Dict[str, Any]) -> Dict[str, Any]:
@@ -7371,6 +7839,8 @@ class AgentResourceOfficer(_PluginBase):
             payload["needs_onboarding"] = bool(data["preference_status"].get("needs_onboarding"))
         if isinstance(data.get("score_summary"), dict):
             payload["score_summary"] = data.get("score_summary")
+        if isinstance(data.get("diagnosis_summary"), dict):
+            payload["diagnosis_summary"] = data.get("diagnosis_summary")
         if isinstance(data.get("recovery"), dict):
             payload["recovery"] = data.get("recovery")
         return {
@@ -7407,6 +7877,11 @@ class AgentResourceOfficer(_PluginBase):
             payload["needs_onboarding"] = bool(data["preference_status"].get("needs_onboarding"))
         if isinstance(data.get("score_summary"), dict):
             payload["score_summary"] = data.get("score_summary")
+        if isinstance(data.get("diagnosis_summary"), dict):
+            payload["diagnosis_summary"] = data.get("diagnosis_summary")
+        for key in ["download_tasks", "download_history", "transfer_history"]:
+            if isinstance(data.get(key), dict):
+                payload[key] = data.get(key)
         for key in ["recommended_action", "follow_up_hint"]:
             if key in data:
                 payload[key] = data.get(key)
@@ -7442,6 +7917,11 @@ class AgentResourceOfficer(_PluginBase):
         }
         if isinstance(data.get("score_summary"), dict):
             payload["score_summary"] = data.get("score_summary")
+        if isinstance(data.get("diagnosis_summary"), dict):
+            payload["diagnosis_summary"] = data.get("diagnosis_summary")
+        for key in ["download_tasks", "download_history", "transfer_history"]:
+            if isinstance(data.get(key), dict):
+                payload[key] = data.get(key)
         for key in ["provider", "page", "total_pages", "selected_candidate", "selected_resource", "plan_id", "workflow"]:
             if key in data:
                 payload[key] = data.get(key)
@@ -8716,6 +9196,7 @@ class AgentResourceOfficer(_PluginBase):
                 "query_mp_download_tasks",
                 "query_mp_download_history",
                 "query_mp_lifecycle_status",
+                "query_mp_ingest_status",
                 "query_execution_followup",
                 "query_mp_media_detail",
                 "query_mp_search_result_detail",
@@ -8725,6 +9206,9 @@ class AgentResourceOfficer(_PluginBase):
                 "query_mp_sites",
                 "query_mp_subscribes",
                 "query_mp_transfer_history",
+                "query_mp_ingest_failures",
+                "query_mp_recent_activity",
+                "query_mp_local_diagnose",
                 "clear_stale_sessions",
                 "clear_executed_plans",
             ],
@@ -8986,6 +9470,18 @@ class AgentResourceOfficer(_PluginBase):
                 "tool_args": {"name": "mp_lifecycle_status", "keyword": "蜘蛛侠", "limit": 5, "session": "assistant", "compact": True},
                 "body": {"workflow": "mp_lifecycle_status", "keyword": "蜘蛛侠", "limit": 5, "session": "assistant", "compact": True},
             },
+            "mp_ingest_status": {
+                "description": "按片名或 hash 输出下载到入库的当前阶段，并附带结构化 diagnosis_summary。",
+                "side_effect": "read_only",
+                "requires_confirmation": False,
+                "cache_scope": "short_lived",
+                "cache_ttl_seconds": 60,
+                "method": "POST",
+                "endpoint": "/api/v1/plugin/AgentResourceOfficer/assistant/workflow",
+                "tool": "agent_resource_officer_run_workflow",
+                "tool_args": {"name": "mp_ingest_status", "keyword": "蜘蛛侠", "limit": 5, "session": "assistant", "compact": True},
+                "body": {"workflow": "mp_ingest_status", "keyword": "蜘蛛侠", "limit": 5, "session": "assistant", "compact": True},
+            },
             "mp_downloaders": {
                 "description": "查询 MP 下载器配置摘要，不返回密码、Cookie 或 Token。",
                 "side_effect": "read_only",
@@ -9069,6 +9565,42 @@ class AgentResourceOfficer(_PluginBase):
                 "tool": "agent_resource_officer_run_workflow",
                 "tool_args": {"name": "mp_transfer_history", "keyword": "蜘蛛侠", "status": "all", "limit": 10, "session": "assistant", "compact": True},
                 "body": {"workflow": "mp_transfer_history", "keyword": "蜘蛛侠", "status": "all", "limit": 10, "session": "assistant", "compact": True},
+            },
+            "mp_ingest_failures": {
+                "description": "聚合最近整理/入库失败记录，并返回失败态 diagnosis_summary。",
+                "side_effect": "read_only",
+                "requires_confirmation": False,
+                "cache_scope": "short_lived",
+                "cache_ttl_seconds": 120,
+                "method": "POST",
+                "endpoint": "/api/v1/plugin/AgentResourceOfficer/assistant/workflow",
+                "tool": "agent_resource_officer_run_workflow",
+                "tool_args": {"name": "mp_ingest_failures", "keyword": "蜘蛛侠", "limit": 10, "session": "assistant", "compact": True},
+                "body": {"workflow": "mp_ingest_failures", "keyword": "蜘蛛侠", "limit": 10, "session": "assistant", "compact": True},
+            },
+            "mp_recent_activity": {
+                "description": "查看最近下载和最近入库活动，适合先发现目标再进入单资源追踪。",
+                "side_effect": "read_only",
+                "requires_confirmation": False,
+                "cache_scope": "short_lived",
+                "cache_ttl_seconds": 120,
+                "method": "POST",
+                "endpoint": "/api/v1/plugin/AgentResourceOfficer/assistant/workflow",
+                "tool": "agent_resource_officer_run_workflow",
+                "tool_args": {"name": "mp_recent_activity", "limit": 10, "session": "assistant", "compact": True},
+                "body": {"workflow": "mp_recent_activity", "limit": 10, "session": "assistant", "compact": True},
+            },
+            "mp_local_diagnose": {
+                "description": "面向“为什么没入库/卡在哪”的一站式只读诊断入口。",
+                "side_effect": "read_only",
+                "requires_confirmation": False,
+                "cache_scope": "short_lived",
+                "cache_ttl_seconds": 60,
+                "method": "POST",
+                "endpoint": "/api/v1/plugin/AgentResourceOfficer/assistant/workflow",
+                "tool": "agent_resource_officer_run_workflow",
+                "tool_args": {"name": "mp_local_diagnose", "keyword": "蜘蛛侠", "limit": 5, "session": "assistant", "compact": True},
+                "body": {"workflow": "mp_local_diagnose", "keyword": "蜘蛛侠", "limit": 5, "session": "assistant", "compact": True},
             },
             "mp_recommend": {
                 "description": "读取 MP 原生热门推荐，例如 TMDB、豆瓣或 Bangumi。",
@@ -9235,6 +9767,7 @@ class AgentResourceOfficer(_PluginBase):
                 "mp_download_control_plan",
                 "mp_download_history",
                 "mp_lifecycle_status",
+                "mp_ingest_status",
                 "mp_downloaders",
                 "mp_sites",
                 "mp_subscribe_plan",
@@ -9242,6 +9775,9 @@ class AgentResourceOfficer(_PluginBase):
                 "mp_subscribes",
                 "mp_subscribe_control_plan",
                 "mp_transfer_history",
+                "mp_ingest_failures",
+                "mp_recent_activity",
+                "mp_local_diagnose",
                 "saved_plan_execute",
             ],
             "mp_recommendation": [
@@ -9251,6 +9787,15 @@ class AgentResourceOfficer(_PluginBase):
                 "mp_search_best",
                 "mp_search_download_plan",
                 "saved_plan_execute",
+            ],
+            "local_ingest": [
+                "mp_lifecycle_status",
+                "mp_ingest_status",
+                "mp_download_history",
+                "mp_transfer_history",
+                "mp_ingest_failures",
+                "mp_recent_activity",
+                "mp_local_diagnose",
             ],
         }
         recipe_aliases = {
@@ -9301,6 +9846,12 @@ class AgentResourceOfficer(_PluginBase):
             "原生搜索": "mp_pt_mainline",
             "pt下载": "mp_pt_mainline",
             "下载订阅": "mp_pt_mainline",
+            "local_ingest": "local_ingest",
+            "local-ingest": "local_ingest",
+            "ingest": "local_ingest",
+            "local": "local_ingest",
+            "本地入库": "local_ingest",
+            "入库诊断": "local_ingest",
             "recommend": "mp_recommendation",
             "recommendation": "mp_recommendation",
             "mp_recommend": "mp_recommendation",
@@ -9912,15 +10463,15 @@ class AgentResourceOfficer(_PluginBase):
         }
         execute_plan_followups_ok = (
             [item.get("name") for item in (execute_plan_followup_samples.get("mp_best_download") or {}).get("action_templates") or []]
-            == ["query_execution_followup", "query_mp_download_history", "query_mp_lifecycle_status", "query_mp_download_tasks"]
+            == ["query_execution_followup", "query_mp_ingest_status", "query_mp_download_history", "query_mp_lifecycle_status", "query_mp_local_diagnose"]
             and (execute_plan_followup_samples.get("mp_best_download") or {}).get("recommended_action") == "query_execution_followup"
             and bool(self._clean_text((execute_plan_followup_samples.get("mp_best_download") or {}).get("follow_up_hint")))
             and [item.get("name") for item in (execute_plan_followup_samples.get("mp_subscribe") or {}).get("action_templates") or []]
-            == ["query_execution_followup", "query_mp_subscribes", "query_mp_lifecycle_status", "start_mp_media_search"]
+            == ["query_execution_followup", "query_mp_subscribes", "query_mp_ingest_status", "start_mp_media_search"]
             and (execute_plan_followup_samples.get("mp_subscribe") or {}).get("recommended_action") == "query_execution_followup"
             and bool(self._clean_text((execute_plan_followup_samples.get("mp_subscribe") or {}).get("follow_up_hint")))
             and [item.get("name") for item in (execute_plan_followup_samples.get("hdhive_unlock_selected") or {}).get("action_templates") or []]
-            == ["query_execution_followup", "query_mp_transfer_history", "inspect_session_state"]
+            == ["query_execution_followup", "query_mp_transfer_history", "query_mp_local_diagnose"]
             and (execute_plan_followup_samples.get("hdhive_unlock_selected") or {}).get("recommended_action") == "query_execution_followup"
             and bool(self._clean_text((execute_plan_followup_samples.get("hdhive_unlock_selected") or {}).get("follow_up_hint")))
         )
@@ -10361,13 +10912,20 @@ class AgentResourceOfficer(_PluginBase):
         elif compact in {
             "下载历史",
             "下载记录",
-            "最近下载",
             "历史下载",
             "downloadhistory",
         }:
             options["action"] = "mp_download_history"
             options["mode"] = ""
             options["keyword"] = ""
+        elif compact in {
+            "最近下载",
+            "recentdownloads",
+        }:
+            options["action"] = "mp_recent_activity"
+            options["mode"] = ""
+            options["keyword"] = ""
+            options["download_only"] = "true"
         elif compact in {
             "追踪",
             "资源追踪",
@@ -10377,6 +10935,14 @@ class AgentResourceOfficer(_PluginBase):
             "lifecyclestatus",
         }:
             options["action"] = "mp_lifecycle_status"
+            options["mode"] = ""
+            options["keyword"] = ""
+        elif compact in {
+            "入库状态",
+            "本地入库",
+            "ingeststatus",
+        }:
+            options["action"] = "mp_ingest_status"
             options["mode"] = ""
             options["keyword"] = ""
         elif compact in {
@@ -10425,7 +10991,6 @@ class AgentResourceOfficer(_PluginBase):
             "入库历史",
             "整理历史",
             "转移历史",
-            "最近入库",
             "最近整理",
             "transferhistory",
         }:
@@ -10433,13 +10998,21 @@ class AgentResourceOfficer(_PluginBase):
             options["mode"] = ""
             options["keyword"] = ""
         elif compact in {
+            "最近入库",
+            "recentingest",
+        }:
+            options["action"] = "mp_recent_activity"
+            options["mode"] = ""
+            options["keyword"] = ""
+            options["transfer_only"] = "true"
+        elif compact in {
             "入库失败",
             "整理失败",
             "失败入库",
             "失败整理",
             "transferfailed",
         }:
-            options["action"] = "mp_transfer_history"
+            options["action"] = "mp_ingest_failures"
             options["mode"] = ""
             options["keyword"] = ""
             options["status"] = "failed"
@@ -10523,6 +11096,12 @@ class AgentResourceOfficer(_PluginBase):
                     options["mode"] = ""
                     options["keyword"] = prefix_match[1]
             if not options.get("action"):
+                prefix_match = AgentResourceOfficer._match_command_prefix(raw, ["入库状态", "本地入库"])
+                if prefix_match:
+                    options["action"] = "mp_ingest_status"
+                    options["mode"] = ""
+                    options["keyword"] = prefix_match[1]
+            if not options.get("action"):
                 prefix_match = AgentResourceOfficer._match_command_prefix(raw, ["MP识别", "mp识别", "媒体识别", "媒体详情", "详情媒体", "识别"])
                 if prefix_match:
                     options["action"] = "mp_media_detail"
@@ -10576,11 +11155,17 @@ class AgentResourceOfficer(_PluginBase):
                 ]:
                     prefix_match = AgentResourceOfficer._match_command_prefix(raw, [prefix])
                     if prefix_match:
-                        options["action"] = "mp_transfer_history"
+                        options["action"] = "mp_ingest_failures" if status_name == "failed" else "mp_transfer_history"
                         options["mode"] = ""
                         options["keyword"] = prefix_match[1]
                         options["status"] = status_name
                         break
+            if not options.get("action"):
+                prefix_match = AgentResourceOfficer._match_command_prefix(raw, ["为什么没入库", "本地诊断"])
+                if prefix_match:
+                    options["action"] = "mp_local_diagnose"
+                    options["mode"] = ""
+                    options["keyword"] = prefix_match[1]
             if not options.get("action"):
                 for prefix, action in [
                     ("下载资源", "mp_download"),
@@ -12619,6 +13204,14 @@ class AgentResourceOfficer(_PluginBase):
                 limit=self._safe_int(body.get("limit"), 10),
                 page=self._safe_int(body.get("page"), 1),
             ))
+        if assistant_action == "mp_ingest_failures":
+            return finish(await self._assistant_mp_ingest_failures(
+                session=session,
+                cache_key=cache_key,
+                title=keyword,
+                limit=self._safe_int(body.get("limit"), 10),
+                page=self._safe_int(body.get("page"), 1),
+            ))
         if assistant_action == "mp_subscribe_control":
             control = self._clean_text(parsed.get("subscribe_control") or body.get("subscribe_control") or body.get("control") or body.get("operation")).lower()
             control_aliases = {
@@ -12699,6 +13292,30 @@ class AgentResourceOfficer(_PluginBase):
             ))
         if assistant_action == "mp_lifecycle_status":
             return finish(await self._assistant_mp_lifecycle_status(
+                session=session,
+                cache_key=cache_key,
+                title=keyword,
+                hash_value=self._clean_text(body.get("hash") or body.get("hash_value") or parsed.get("hash")),
+                limit=self._safe_int(body.get("limit"), 5),
+            ))
+        if assistant_action == "mp_ingest_status":
+            return finish(await self._assistant_mp_ingest_status(
+                session=session,
+                cache_key=cache_key,
+                title=keyword,
+                hash_value=self._clean_text(body.get("hash") or body.get("hash_value") or parsed.get("hash")),
+                limit=self._safe_int(body.get("limit"), 5),
+            ))
+        if assistant_action == "mp_recent_activity":
+            return finish(await self._assistant_mp_recent_activity(
+                session=session,
+                cache_key=cache_key,
+                limit=self._safe_int(body.get("limit"), 10),
+                download_only=self._parse_bool_value(body.get("download_only") or parsed.get("download_only"), False),
+                transfer_only=self._parse_bool_value(body.get("transfer_only") or parsed.get("transfer_only"), False),
+            ))
+        if assistant_action == "mp_local_diagnose":
+            return finish(await self._assistant_mp_local_diagnose(
                 session=session,
                 cache_key=cache_key,
                 title=keyword,
@@ -13360,6 +13977,18 @@ class AgentResourceOfficer(_PluginBase):
                 hash_value=self._clean_text(body.get("hash") or body.get("hash_value")),
                 limit=self._safe_int(body.get("limit"), 5),
             ))
+        if name == "query_mp_ingest_status":
+            session_name, cache_key = self._normalize_assistant_session_ref(
+                session=body.get("session") or "default",
+                session_id=body.get("session_id"),
+            )
+            return await finish(self._assistant_mp_ingest_status(
+                session=session_name,
+                cache_key=cache_key,
+                title=self._clean_text(body.get("title") or body.get("keyword")),
+                hash_value=self._clean_text(body.get("hash") or body.get("hash_value")),
+                limit=self._safe_int(body.get("limit"), 5),
+            ))
         if name == "query_mp_downloaders":
             session_name, cache_key = self._normalize_assistant_session_ref(
                 session=body.get("session") or "default",
@@ -13391,6 +14020,18 @@ class AgentResourceOfficer(_PluginBase):
                 name=self._clean_text(body.get("subscribe_name") or body.get("keyword") or body.get("title")),
                 limit=self._safe_int(body.get("limit"), 20),
             ))
+        if name == "query_mp_ingest_failures":
+            session_name, cache_key = self._normalize_assistant_session_ref(
+                session=body.get("session") or "default",
+                session_id=body.get("session_id"),
+            )
+            return await finish(self._assistant_mp_ingest_failures(
+                session=session_name,
+                cache_key=cache_key,
+                title=self._clean_text(body.get("title") or body.get("keyword")),
+                limit=self._safe_int(body.get("limit"), 10),
+                page=self._safe_int(body.get("page"), 1),
+            ))
         if name == "query_mp_transfer_history":
             session_name, cache_key = self._normalize_assistant_session_ref(
                 session=body.get("session") or "default",
@@ -13403,6 +14044,30 @@ class AgentResourceOfficer(_PluginBase):
                 status=self._clean_text(body.get("status") or "all"),
                 limit=self._safe_int(body.get("limit"), 10),
                 page=self._safe_int(body.get("page"), 1),
+            ))
+        if name == "query_mp_recent_activity":
+            session_name, cache_key = self._normalize_assistant_session_ref(
+                session=body.get("session") or "default",
+                session_id=body.get("session_id"),
+            )
+            return await finish(self._assistant_mp_recent_activity(
+                session=session_name,
+                cache_key=cache_key,
+                limit=self._safe_int(body.get("limit"), 10),
+                download_only=self._parse_bool_value(body.get("download_only"), False),
+                transfer_only=self._parse_bool_value(body.get("transfer_only"), False),
+            ))
+        if name == "query_mp_local_diagnose":
+            session_name, cache_key = self._normalize_assistant_session_ref(
+                session=body.get("session") or "default",
+                session_id=body.get("session_id"),
+            )
+            return await finish(self._assistant_mp_local_diagnose(
+                session=session_name,
+                cache_key=cache_key,
+                title=self._clean_text(body.get("title") or body.get("keyword")),
+                hash_value=self._clean_text(body.get("hash") or body.get("hash_value")),
+                limit=self._safe_int(body.get("limit"), 5),
             ))
         if name == "query_execution_followup":
             session_name, cache_key = self._normalize_assistant_session_ref(
@@ -13704,6 +14369,8 @@ class AgentResourceOfficer(_PluginBase):
         }
         if isinstance(data.get("score_summary"), dict):
             summary["score_summary"] = data.get("score_summary")
+        if isinstance(data.get("diagnosis_summary"), dict):
+            summary["diagnosis_summary"] = data.get("diagnosis_summary")
         return summary
 
     async def api_assistant_actions(self, request: Request):
@@ -13871,6 +14538,11 @@ class AgentResourceOfficer(_PluginBase):
                     "fields": ["session", "keyword", "hash", "limit", "compact"],
                 },
                 {
+                    "name": "mp_ingest_status",
+                    "description": "按片名或 hash 判断当前处于下载中、已下载、整理中、已入库还是失败阶段，只读",
+                    "fields": ["session", "keyword", "hash", "limit", "compact"],
+                },
+                {
                     "name": "mp_downloaders",
                     "description": "查询 MP 下载器配置摘要，不返回敏感字段",
                     "fields": ["session", "compact"],
@@ -13909,6 +14581,21 @@ class AgentResourceOfficer(_PluginBase):
                     "name": "mp_transfer_history",
                     "description": "查询 MP 最近整理/入库历史，可按标题和成功/失败状态过滤，只读",
                     "fields": ["session", "keyword", "status", "limit", "page", "compact"],
+                },
+                {
+                    "name": "mp_ingest_failures",
+                    "description": "聚合查看最近整理/入库失败记录，只读",
+                    "fields": ["session", "keyword", "limit", "page", "compact"],
+                },
+                {
+                    "name": "mp_recent_activity",
+                    "description": "查看最近下载和最近整理/入库活动，只读",
+                    "fields": ["session", "limit", "download_only", "transfer_only", "compact"],
+                },
+                {
+                    "name": "mp_local_diagnose",
+                    "description": "一站式诊断为什么还没入库或当前卡在什么阶段，只读",
+                    "fields": ["session", "keyword", "hash", "limit", "compact"],
                 },
                 {
                     "name": "execution_followup",
@@ -14075,6 +14762,14 @@ class AgentResourceOfficer(_PluginBase):
                 "limit": self._safe_int(body.get("limit"), 5),
             })], ""
 
+        if workflow_name == "mp_ingest_status":
+            return [base({
+                "name": "query_mp_ingest_status",
+                "keyword": keyword,
+                "hash": self._clean_text(body.get("hash") or body.get("hash_value")),
+                "limit": self._safe_int(body.get("limit"), 5),
+            })], ""
+
         if workflow_name == "mp_downloaders":
             return [base({"name": "query_mp_downloaders"})], ""
 
@@ -14136,6 +14831,30 @@ class AgentResourceOfficer(_PluginBase):
                 "status": self._clean_text(body.get("status")) or "all",
                 "limit": self._safe_int(body.get("limit"), 10),
                 "page": self._safe_int(body.get("page"), 1),
+            })], ""
+
+        if workflow_name == "mp_ingest_failures":
+            return [base({
+                "name": "query_mp_ingest_failures",
+                "keyword": keyword,
+                "limit": self._safe_int(body.get("limit"), 10),
+                "page": self._safe_int(body.get("page"), 1),
+            })], ""
+
+        if workflow_name == "mp_recent_activity":
+            return [base({
+                "name": "query_mp_recent_activity",
+                "limit": self._safe_int(body.get("limit"), 10),
+                "download_only": self._parse_bool_value(body.get("download_only"), False),
+                "transfer_only": self._parse_bool_value(body.get("transfer_only"), False),
+            })], ""
+
+        if workflow_name == "mp_local_diagnose":
+            return [base({
+                "name": "query_mp_local_diagnose",
+                "keyword": keyword,
+                "hash": self._clean_text(body.get("hash") or body.get("hash_value")),
+                "limit": self._safe_int(body.get("limit"), 5),
             })], ""
 
         if workflow_name == "execution_followup":

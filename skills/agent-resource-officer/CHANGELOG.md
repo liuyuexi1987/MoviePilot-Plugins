@@ -1,5 +1,11 @@
 # agent-resource-officer changelog
 
+## 0.1.28
+
+- Added `local_ingest_recipe_command` to the external-agent payload.
+- Taught recipe command generation that `mp_ingest_status` and `mp_local_diagnose` map to direct workflow helper commands.
+- Preserved `diagnosis_summary` in compact helper output so local/PT ingest diagnostics remain structured for external agents.
+
 ## 0.1.27
 
 - Added `post_execute_recipe_command` to the external-agent payload.

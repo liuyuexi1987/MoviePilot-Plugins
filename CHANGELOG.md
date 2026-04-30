@@ -14,7 +14,7 @@
 
 - `AIRecoginzerForwarder`: `2.0.1`
 - `AIRecognizerEnhancer`: `0.1.11`
-- `AgentResourceOfficer`: `0.2.52`
+- `AgentResourceOfficer`: `0.2.53`
 - `FeishuCommandBridgeLong`: `0.5.26`
 - `HdhiveOpenApi`: `0.3.0`
 - `HDHiveDailySign`: `1.0.0`
@@ -23,6 +23,7 @@
 
 ## 近期基础设施更新
 
+- `AgentResourceOfficer 0.2.53`：新增本地/PT 入库诊断主线；补齐 `mp_ingest_status`、`mp_ingest_failures`、`mp_recent_activity`、`mp_local_diagnose`，并让生命周期/执行后追踪统一返回 `diagnosis_summary`。
 - `AgentResourceOfficer 0.2.52`：调整 `recover` 优先级；当前会话最近一条计划已执行时，恢复入口会优先推荐 `query_execution_followup`，不再退回普通会话检查或新任务入口。
 - `AgentResourceOfficer 0.2.51`：把 `execution_followup` 下沉为正式 request template 和 `followup` recipe，外部智能体可以用低 token 模板直接接到执行后只读追踪链。
 - `AgentResourceOfficer 0.2.50`：补齐 `assistant/action` compact 协议，`query_execution_followup` 这类单动作返回现在也会带 `error_code`、`recommended_action` 和 `follow_up_hint`，外部智能体续接更稳定。
