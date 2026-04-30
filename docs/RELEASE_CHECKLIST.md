@@ -10,6 +10,10 @@ bash scripts/release-preflight.sh
 
 它会先跑 `repo-hygiene.sh`，再跑 `pre-release-check.sh`。
 
+如果你只想快速查维护/发布命令，不想通读整份清单，直接看：
+
+- `docs/MAINTENANCE_COMMANDS.md`
+
 ## 1. 确认工作区
 
 ```bash

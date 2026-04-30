@@ -21,6 +21,8 @@ Personal MoviePilot plugin suite for agent-driven resource workflows, AI recogni
 - README 首页保持中文
 - GitHub 仓库描述使用简短英文
 - 当前对外文档优先以 `docs/INDEX.md` 为导航；不要把历史规划文档当成当前说明
+- 如果只想快速查维护/发布命令，不想先读长文，直接看：
+  - `docs/MAINTENANCE_COMMANDS.md`
 - 如果只想单独跑底层发布检查，再执行：
   - `bash scripts/pre-release-check.sh`
 - 如果只想先验证“当前状态”文档有没有版本漂移，可以单独执行：
