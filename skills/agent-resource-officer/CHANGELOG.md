@@ -1,5 +1,10 @@
 # agent-resource-officer changelog
 
+## 0.1.34
+
+- Added `execution_policy_contract` to the external-agent payload so external agents can consume the helper's execution behavior classes without reading repository docs first.
+- Documented the five recommended behavior branches (`auto_continue`, `auto_continue_then_wait_confirmation`, `wait_user_confirmation`, `show_only`, `stop`) across the Skill and external-agent guides.
+
 ## 0.1.33
 
 - Extended the helper-owned execution policy summary to legacy helper summaries such as `decide`, `auto`, `doctor`, and `recover`, so external agents no longer need two different parsing paths.

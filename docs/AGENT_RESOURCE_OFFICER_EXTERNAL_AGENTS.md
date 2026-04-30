@@ -25,6 +25,16 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
 - 云盘资源和 PT 资源分开评分：云盘看清晰度、字幕、完整度、网盘类型和影巢积分；PT 看做种数、免费/促销、下载折算、清晰度、字幕和匹配度。
 - 如果 helper 的 `summary-only` 返回 `recommended_agent_behavior=auto_continue` 或 `auto_continue_then_wait_confirmation`，可以直接执行 `auto_run_command`；其他结果先停下来展示或确认。
 
+推荐把外部智能体自身的执行分支固定成 5 类：
+
+- `auto_continue`
+- `auto_continue_then_wait_confirmation`
+- `wait_user_confirmation`
+- `show_only`
+- `stop`
+
+不要在接入层再定义第三套状态机，直接复用 helper 返回值。
+
 ## 必要配置
 
 把下面两个变量配置到外部智能体的安全变量区或工具配置区：

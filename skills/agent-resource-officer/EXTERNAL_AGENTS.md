@@ -25,6 +25,16 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
 - 云盘资源按质量、字幕、完整度、目录和影巢积分评分；PT 资源按做种、免费/促销、下载折算、质量、字幕和匹配度评分。
 - 如果 helper 的 `summary-only` 返回 `recommended_agent_behavior=auto_continue` 或 `auto_continue_then_wait_confirmation`，可以直接执行 `auto_run_command`；其他结果先展示或等待确认。
 
+推荐把外部智能体自身的执行分支固定成 5 类：
+
+- `auto_continue`
+- `auto_continue_then_wait_confirmation`
+- `wait_user_confirmation`
+- `show_only`
+- `stop`
+
+不要再额外发明第三套状态名；直接复用 helper 返回值。
+
 ## 连接变量
 
 ```text

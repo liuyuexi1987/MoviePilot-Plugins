@@ -12,7 +12,7 @@ CONFIG_PATH = os.path.expanduser(CONFIG_PATH_DISPLAY)
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXTERNAL_AGENT_GUIDE_PATH = os.path.join(SKILL_DIR, "EXTERNAL_AGENTS.md")
 WORKBUDDY_GUIDE_PATH = EXTERNAL_AGENT_GUIDE_PATH
-HELPER_VERSION = "0.1.33"
+HELPER_VERSION = "0.1.34"
 HELPER_COMMANDS = [
     "auto",
     "commands",
@@ -175,6 +175,13 @@ def external_agent_payload():
         "followup_command": "python3 scripts/aro_request.py followup --session 'agent:<会话ID>'",
         "next_command_rule": "优先读取 compact 主响应顶层的 preferred_command、fallback_command、compact_commands；只有这些字段为空时，再回退到 error_summary / followup_summary / score_summary.decision。",
         "auto_continue_rule": "如果 summary-only 输出里 recommended_agent_behavior=auto_continue 或 auto_continue_then_wait_confirmation，则可以直接执行 auto_run_command；如果是 wait_user_confirmation，则先向用户展示 confirm_command；如果是 stop，则不要继续自动执行。",
+        "execution_policy_contract": {
+            "auto_continue": "直接执行 auto_run_command。",
+            "auto_continue_then_wait_confirmation": "先执行 auto_run_command，再停止并向用户展示 confirm_command。",
+            "wait_user_confirmation": "不要自动执行；先向用户展示 confirm_command 或 display_command。",
+            "show_only": "只展示 display_command，不要自动继续。",
+            "stop": "当前没有适合自动继续的命令，不要继续执行。",
+        },
         "compat_aliases": ["workbuddy"],
         "prompt": prompt,
         "tools": [
@@ -978,6 +985,7 @@ def selftest_result():
     check("external_agent_payload_has_post_execute_recipe", bool(external_agent.get("post_execute_recipe_command")))
     check("external_agent_payload_has_local_ingest_recipe", bool(external_agent.get("local_ingest_recipe_command")))
     check("external_agent_payload_has_next_command_rule", bool(external_agent.get("next_command_rule")))
+    check("external_agent_payload_has_execution_policy_contract", bool((external_agent.get("execution_policy_contract") or {}).get("auto_continue")))
 
     catalog = commands_catalog()
     catalog_commands = catalog.get("commands") or []
