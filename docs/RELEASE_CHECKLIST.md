@@ -170,6 +170,20 @@ git branch -r
 python3 scripts/audit-remote-branches.py
 ```
 
+如果远端已经收干净，但本地还留着大量历史分支，可先看 dry-run：
+
+```bash
+python3 scripts/archive-local-branches.py
+```
+
+确认无误后再执行：
+
+```bash
+python3 scripts/archive-local-branches.py --apply
+```
+
+这个脚本会先把本地历史分支转成 `archive/<branch>` 本地 tag，再删除分支名。
+
 注意：
 
 - 远端分支如果是通过 `squash merge` 合并，`git merge-base --is-ancestor` 不能直接作为删分支依据。
