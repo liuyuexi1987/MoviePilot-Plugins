@@ -1,5 +1,11 @@
 # agent-resource-officer changelog
 
+## 0.1.30
+
+- Added top-level compact command extraction for `route`, `pick`, `workflow`, `plan-execute`, and `followup`.
+- Added `--summary-only` / `--command-only` support for those commands, so external agents can ask the helper for just the next command.
+- Added `next_command_rule` to the external-agent payload and documented the top-level `preferred_command` / `compact_commands` contract.
+
 ## 0.1.29
 
 - Added `preferences_recipe_command` to the external-agent payload.

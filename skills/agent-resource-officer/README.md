@@ -2,7 +2,7 @@
 
 公开版 AgentResourceOfficer Skill 模板，用来让外部智能体通过 MoviePilot 插件接口控制 115 云盘、夸克云盘等云盘资源工作流。
 
-当前 helper 版本：`0.1.29`
+当前 helper 版本：`0.1.30`
 
 公开仓库：
 
@@ -52,6 +52,13 @@ ARO_API_KEY=your_moviepilot_api_token
 
 - `python3 scripts/aro_request.py route "盘搜搜索 大君夫人"`
 - `python3 scripts/aro_request.py route --text "盘搜搜索 大君夫人"`
+
+`route`、`pick`、`workflow`、`plan-execute`、`followup` 还支持：
+
+- `--summary-only`
+- `--command-only`
+
+适合外部智能体只拿“下一步怎么做”的最小结果。
 
 `pick`、`plan-execute`、`followup` 也支持更短的位置参数写法：
 
@@ -142,6 +149,8 @@ python3 scripts/aro_request.py pick 1
 3. `score_summary.decision`
 
 外部智能体如果只想要“下一条最短命令”，直接读取顶层字段即可，不必自己再判断嵌套结构来源。
+
+从 helper `0.1.30` 开始，`route / pick / workflow / plan-execute / followup` 也能直接把这层顶层字段压成 `--summary-only` / `--command-only` 输出。外部智能体如果不想自己解析 JSON，可以直接调用 helper。
 
 评分由插件内置规则执行。外部智能体如需解释规则，可读取 `scoring-policy` 或 `capabilities.scoring_policy`；不要在智能体侧重新打分，也不要绕过 `hard_risk_reasons`。
 

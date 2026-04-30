@@ -12,7 +12,7 @@ CONFIG_PATH = os.path.expanduser(CONFIG_PATH_DISPLAY)
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXTERNAL_AGENT_GUIDE_PATH = os.path.join(SKILL_DIR, "EXTERNAL_AGENTS.md")
 WORKBUDDY_GUIDE_PATH = EXTERNAL_AGENT_GUIDE_PATH
-HELPER_VERSION = "0.1.29"
+HELPER_VERSION = "0.1.30"
 HELPER_COMMANDS = [
     "auto",
     "commands",
@@ -153,6 +153,7 @@ def external_agent_payload():
         "如果 preferences 未初始化，先询问并保存片源偏好；"
         "云盘和 PT 使用不同评分规则：云盘看质量/完整度/字幕/影巢积分，PT 看做种/促销/质量/字幕。"
         "编号选择走 pick；写入动作遵守 dry_run、plan_id、execute 的确认流程。"
+        "route/pick/workflow/plan-execute/followup 返回 compact JSON 时，优先读取顶层 command_source、preferred_command、fallback_command、compact_commands 作为下一步。"
         "输出时只展示用户需要选择或执行的信息，不回显 API Key、Cookie、Token。"
     )
     return {
@@ -172,6 +173,7 @@ def external_agent_payload():
         "route_command": "python3 scripts/aro_request.py route '<用户原始指令>' --session 'agent:<会话ID>'",
         "pick_command": "python3 scripts/aro_request.py pick <编号> --session 'agent:<会话ID>'",
         "followup_command": "python3 scripts/aro_request.py followup --session 'agent:<会话ID>'",
+        "next_command_rule": "优先读取 compact 主响应顶层的 preferred_command、fallback_command、compact_commands；只有这些字段为空时，再回退到 error_summary / followup_summary / score_summary.decision。",
         "compat_aliases": ["workbuddy"],
         "prompt": prompt,
         "tools": [
@@ -271,10 +273,16 @@ def compact(data):
             "scoring_policy",
             "preference_status",
             "score_summary",
+            "error_summary",
             "diagnosis_summary",
+            "followup_summary",
             "preferences",
             "needs_onboarding",
             "initialized",
+            "command_source",
+            "preferred_command",
+            "fallback_command",
+            "compact_commands",
         ]
         out = {key: data.get(key) for key in ["success", "message"] if key in data}
         for key in keys:
@@ -320,6 +328,12 @@ def print_json(data):
 
 def summary_command(summary, confirmed=False):
     summary = summary or {}
+    preferred_command = str(summary.get("preferred_command") or "").strip()
+    fallback_command = str(summary.get("fallback_command") or "").strip()
+    if preferred_command:
+        if confirmed and bool(summary.get("requires_confirmation")) and fallback_command:
+            return fallback_command
+        return preferred_command
     if "first_requires_confirmation" in summary:
         requires_confirmation = bool(summary.get("first_requires_confirmation"))
     else:
@@ -330,6 +344,36 @@ def summary_command(summary, confirmed=False):
     if not command:
         command = str(summary.get("inspect_helper_command") or "").strip()
     return command
+
+
+def compact_command_summary(output):
+    payload = output if isinstance(output, dict) else {}
+    compact_commands = [
+        str(item).strip()
+        for item in (payload.get("compact_commands") or [])
+        if str(item).strip()
+    ]
+    preferred_command = str(payload.get("preferred_command") or "").strip()
+    fallback_command = str(payload.get("fallback_command") or "").strip()
+    if preferred_command and not compact_commands:
+        compact_commands = [preferred_command]
+        if fallback_command:
+            compact_commands.append(fallback_command)
+    action = str(payload.get("action") or "").strip()
+    write_effect = str(payload.get("write_effect") or "").strip()
+    ok = bool(payload.get("ok")) if "ok" in payload else bool(payload.get("success"))
+    return {
+        "success": bool(payload.get("success", ok)),
+        "ok": ok,
+        "action": action,
+        "write_effect": write_effect,
+        "command_source": str(payload.get("command_source") or "").strip(),
+        "preferred_command": preferred_command or (compact_commands[0] if compact_commands else ""),
+        "fallback_command": fallback_command or (compact_commands[1] if len(compact_commands) > 1 else ""),
+        "compact_commands": compact_commands[:2],
+        "requires_confirmation": write_effect == "write",
+        "message_head": str(payload.get("message") or payload.get("message_head") or "").strip(),
+    }
 
 
 def print_summary(summary, command_only=False, confirmed=False):
@@ -583,6 +627,18 @@ def selftest_result():
         "execute_helper_command": "execute",
     }
     check("command_only_without_confirmation_executes", summary_command(no_confirm_summary) == "execute")
+    top_level_preferred_summary = {
+        "requires_confirmation": False,
+        "preferred_command": "选择 1",
+        "fallback_command": "下载1",
+    }
+    check("command_only_prefers_top_level_command", summary_command(top_level_preferred_summary) == "选择 1")
+    top_level_confirm_summary = {
+        "requires_confirmation": True,
+        "preferred_command": "选择 1",
+        "fallback_command": "下载1",
+    }
+    check("command_only_confirmed_uses_top_level_fallback", summary_command(top_level_confirm_summary, confirmed=True) == "下载1")
 
     quote_value = shell_quote("a'b")
     check("shell_quote_single_quote", quote_value == "'a'\"'\"'b'")
@@ -655,6 +711,19 @@ def selftest_result():
         },
     })
     check("compact_preserves_follow_up_hint", compact_execute.get("follow_up_hint") == "先查下载历史。")
+    compact_top_level_commands = compact({
+        "success": True,
+        "data": {
+            "action": "mp_media_search",
+            "command_source": "score_summary",
+            "preferred_command": "选择 1",
+            "fallback_command": "下载1",
+            "compact_commands": ["选择 1", "下载1"],
+        },
+    })
+    top_level_summary = compact_command_summary(compact_top_level_commands)
+    check("compact_preserves_top_level_preferred_command", compact_top_level_commands.get("preferred_command") == "选择 1")
+    check("compact_command_summary_prefers_top_level", top_level_summary.get("preferred_command") == "选择 1" and top_level_summary.get("command_source") == "score_summary")
     compact_clear = compact({
         "success": True,
         "data": {
@@ -688,6 +757,7 @@ def selftest_result():
     check("external_agent_payload_has_mp_recommend_recipe", bool(external_agent.get("mp_recommend_recipe_command")))
     check("external_agent_payload_has_post_execute_recipe", bool(external_agent.get("post_execute_recipe_command")))
     check("external_agent_payload_has_local_ingest_recipe", bool(external_agent.get("local_ingest_recipe_command")))
+    check("external_agent_payload_has_next_command_rule", bool(external_agent.get("next_command_rule")))
 
     catalog = commands_catalog()
     catalog_commands = catalog.get("commands") or []
@@ -1363,6 +1433,11 @@ def main():
             "requires_confirmation": recovery_can_resume(recovery, helper_commands),
             **helper_commands,
         }
+        print_summary(summary, command_only=args.command_only, confirmed=args.confirmed)
+        return 0
+    if args.command in {"route", "pick", "workflow", "plan-execute", "followup"} and (args.summary_only or args.command_only) and not args.full:
+        output = compact(result)
+        summary = compact_command_summary(output)
         print_summary(summary, command_only=args.command_only, confirmed=args.confirmed)
         return 0
     output = result if args.full else compact(result)
