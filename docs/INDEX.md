@@ -22,6 +22,15 @@
 2. [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md)
 3. [GITHUB_PUBLISH.md](./GITHUB_PUBLISH.md)
 
+## 我现在要做仓库维护
+
+1. 先跑：
+   `bash scripts/repo-hygiene.sh`
+2. 再看：
+   [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md)
+3. 如需当前发版口径：
+   [GITHUB_PUBLISH.md](./GITHUB_PUBLISH.md)
+
 ## 当前有效文档清单
 
 - [PLUGIN_INSTALL.md](./PLUGIN_INSTALL.md)
