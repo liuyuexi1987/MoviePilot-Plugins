@@ -142,13 +142,13 @@ python3 scripts/aro_request.py pick 1
 
 执行计划后的回执，以及后续的 `execution_followup`、`smart_followup`、`mp_lifecycle_status`、`mp_ingest_status`、`mp_recent_activity`，现在会统一附带 `followup_summary`。外部智能体应优先读取 `preferred_command`、`fallback_command` 和 `compact_commands` 来决定“接下来查下载、查入库还是查诊断”，不要再靠不同 message 文案分支判断。
 
-从 `0.2.62` 开始，compact 主响应顶层也会直接给出统一的 `command_source`、`preferred_command`、`fallback_command`、`compact_commands`。优先级已经固定为：
+从 `0.2.63` 开始，compact 主响应顶层也会直接给出统一的 `command_source`、`command_policy`、`preferred_requires_confirmation`、`fallback_requires_confirmation`、`can_auto_run_preferred`、`preferred_command`、`fallback_command`、`compact_commands`。优先级已经固定为：
 
 1. `error_summary`
 2. `followup_summary`
 3. `score_summary.decision`
 
-外部智能体如果只想要“下一条最短命令”，直接读取顶层字段即可，不必自己再判断嵌套结构来源。
+外部智能体如果只想要“下一条最短命令”，直接读取顶层字段即可，不必自己再判断嵌套结构来源；如果还要判断“这一步能不能直接执行”，则读取 `command_policy` 和两个 `*_requires_confirmation` 标志。
 
 从 helper `0.1.30` 开始，`route / pick / workflow / plan-execute / followup` 也能直接把这层顶层字段压成 `--summary-only` / `--command-only` 输出。外部智能体如果不想自己解析 JSON，可以直接调用 helper。
 
