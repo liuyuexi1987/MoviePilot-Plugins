@@ -53,6 +53,7 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
 
 - `orchestration_contract`
 - `entry_patterns`
+- `entry_playbooks`
 - `recommended_recipe_detail`
 
 ## 连接变量

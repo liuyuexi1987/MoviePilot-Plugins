@@ -12,7 +12,7 @@ CONFIG_PATH = os.path.expanduser(CONFIG_PATH_DISPLAY)
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXTERNAL_AGENT_GUIDE_PATH = os.path.join(SKILL_DIR, "EXTERNAL_AGENTS.md")
 WORKBUDDY_GUIDE_PATH = EXTERNAL_AGENT_GUIDE_PATH
-HELPER_VERSION = "0.1.38"
+HELPER_VERSION = "0.1.39"
 HELPER_COMMANDS = [
     "auto",
     "commands",
@@ -233,6 +233,61 @@ def external_agent_payload():
                 "route_with": "route / pick / followup",
                 "followup_with": "followup --summary-only",
                 "notes": "飞书是消息入口，不单独维护另一套状态机。",
+            },
+        },
+        "entry_playbooks": {
+            "external_agent": {
+                "label": "外部智能体最小执行流",
+                "steps": [
+                    {
+                        "step": "startup",
+                        "helper_command": "python3 scripts/aro_request.py startup",
+                        "purpose": "读取启动状态、恢复建议和推荐 recipe。",
+                    },
+                    {
+                        "step": "decide",
+                        "helper_command": "python3 scripts/aro_request.py decide --summary-only",
+                        "purpose": "决定继续会话、初始化偏好还是直接进入 route。",
+                    },
+                    {
+                        "step": "route",
+                        "helper_command": "python3 scripts/aro_request.py route '<用户原始指令>' --session 'agent:<会话ID>' --summary-only",
+                        "purpose": "执行自然语言主入口。",
+                    },
+                    {
+                        "step": "followup",
+                        "helper_command": "python3 scripts/aro_request.py followup --session 'agent:<会话ID>' --summary-only",
+                        "purpose": "执行计划后继续追踪下载、入库或失败诊断。",
+                    },
+                ],
+            },
+            "mp_builtin_agent": {
+                "label": "MP 内置智能体最小执行流",
+                "steps": [
+                    {
+                        "step": "request_templates",
+                        "tool": "agent_resource_officer_request_templates",
+                        "purpose": "读取最小流程、确认策略和推荐入口。",
+                    },
+                    {
+                        "step": "route",
+                        "tool": "agent_resource_officer_smart_entry",
+                        "purpose": "处理搜索、链接、登录状态等主入口。",
+                    },
+                    {
+                        "step": "followup",
+                        "tool": "agent_resource_officer_execution_followup",
+                        "purpose": "执行计划后继续查看下载、入库和失败状态。",
+                    },
+                ],
+            },
+            "feishu_channel": {
+                "label": "飞书入口最小执行流",
+                "steps": [
+                    {"step": "message_in", "purpose": "用户消息进入内置 Channel。"},
+                    {"step": "route", "purpose": "复用同一套 assistant 协议，不维护单独状态机。"},
+                    {"step": "reply", "purpose": "按确认策略回消息、展示编号或提示下一步。"},
+                ],
             },
         },
         "orchestration_contract": {
@@ -711,8 +766,8 @@ def recovery_can_resume(recovery, helper_commands=None):
 
 def request_templates_summary(data):
     payload = data_payload(data)
-    detail = payload.get("recommended_recipe_detail") if isinstance(payload, dict) else {}
-    first_call = detail.get("first_call") if isinstance(detail, dict) else {}
+    detail = payload.get("recommended_recipe_detail") if isinstance(payload, dict) and isinstance(payload.get("recommended_recipe_detail"), dict) else {}
+    first_call = detail.get("first_call") if isinstance(detail, dict) and isinstance(detail.get("first_call"), dict) else {}
     return {
         "selected_recipe": payload.get("selected_recipe") or payload.get("recommended_recipe") or "",
         "recommended_recipe": payload.get("recommended_recipe") or "",
@@ -724,6 +779,7 @@ def request_templates_summary(data):
         "confirmation_message": detail.get("confirmation_message") or "",
         "orchestration_contract": payload.get("orchestration_contract") or detail.get("orchestration_contract") or {},
         "entry_patterns": payload.get("entry_patterns") or detail.get("entry_patterns") or {},
+        "entry_playbooks": payload.get("entry_playbooks") or detail.get("entry_playbooks") or {},
     }
 
 
@@ -871,6 +927,21 @@ def selftest_result():
     check("templates_summary_first_confirmation", template_summary.get("first_requires_confirmation") is False)
     check("templates_summary_orchestration_contract", (template_summary.get("orchestration_contract") or {}).get("recommended_first_call") == "startup")
     check("templates_summary_entry_patterns", bool(((template_summary.get("entry_patterns") or {}).get("mp_builtin_agent") or {}).get("route_with")))
+    template_summary_with_playbooks = request_templates_summary({
+        "data": {
+            "recommended_recipe": "external_agent_quickstart",
+            "entry_playbooks": {
+                "external_agent": {
+                    "steps": [{"step": "startup"}, {"step": "decide"}, {"step": "route"}, {"step": "followup"}],
+                },
+                "mp_builtin_agent": {
+                    "steps": [{"step": "request_templates", "tool": "agent_resource_officer_request_templates"}],
+                },
+            },
+        },
+    })
+    check("templates_summary_entry_playbooks", len(((template_summary_with_playbooks.get("entry_playbooks") or {}).get("external_agent") or {}).get("steps") or []) == 4)
+    check("templates_summary_entry_playbooks_mp_tool", bool(((((template_summary_with_playbooks.get("entry_playbooks") or {}).get("mp_builtin_agent") or {}).get("steps") or [{}])[0]).get("tool")))
 
     confirm_summary = {
         "requires_confirmation": True,
@@ -1072,6 +1143,8 @@ def selftest_result():
     check("external_agent_payload_has_feishu_entry_pattern", bool(((external_agent.get("entry_patterns") or {}).get("feishu_channel") or {}).get("route_with")))
     check("external_agent_payload_has_orchestration_contract", (external_agent.get("orchestration_contract") or {}).get("recommended_route_call") == "route --summary-only")
     check("external_agent_payload_has_entry_patterns", bool(((external_agent.get("entry_patterns") or {}).get("mp_builtin_agent") or {}).get("route_with")))
+    check("external_agent_payload_has_entry_playbooks", len((((external_agent.get("entry_playbooks") or {}).get("external_agent") or {}).get("steps") or [])) >= 4)
+    check("external_agent_payload_has_mp_playbook_tool", bool(((((external_agent.get("entry_playbooks") or {}).get("mp_builtin_agent") or {}).get("steps") or [{}])[0]).get("tool")))
 
     catalog = commands_catalog()
     catalog_commands = catalog.get("commands") or []

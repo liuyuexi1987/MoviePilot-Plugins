@@ -115,7 +115,7 @@ class AgentResourceOfficer(_PluginBase):
     plugin_name = "Agent影视助手"
     plugin_desc = "统一承接影巢、115、夸克、飞书与智能体入口的资源工作流主插件。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png"
-    plugin_version = "0.2.65"
+    plugin_version = "0.2.66"
     request_templates_schema_version = "request_templates.v1"
     plugin_author = "liuyuexi1987"
     author_url = "https://github.com/liuyuexi1987"
@@ -10740,6 +10740,118 @@ class AgentResourceOfficer(_PluginBase):
             ],
             "confirmation_rule": "写入动作默认确认制；只有明确标记可自动继续的只读步骤才自动续跑。",
         }
+        entry_playbooks = {
+            "external_agent": {
+                "label": "外部智能体最小执行流",
+                "transport": "skill_helper_or_http",
+                "steps": [
+                    {
+                        "step": "startup",
+                        "helper_command": "python3 scripts/aro_request.py startup",
+                        "http_call": {
+                            "method": "GET",
+                            "endpoint": "/api/v1/plugin/AgentResourceOfficer/assistant/startup",
+                            "url_template": "{base_url}/api/v1/plugin/AgentResourceOfficer/assistant/startup?apikey={MP_API_TOKEN}",
+                        },
+                        "purpose": "读取启动状态、恢复建议和推荐 recipe。",
+                        "read_fields": ["recommended_request_templates", "recovery", "services"],
+                    },
+                    {
+                        "step": "decide",
+                        "helper_command": "python3 scripts/aro_request.py decide --summary-only",
+                        "http_call": {
+                            "method": "GET",
+                            "endpoint": "/api/v1/plugin/AgentResourceOfficer/assistant/startup",
+                            "url_template": "{base_url}/api/v1/plugin/AgentResourceOfficer/assistant/startup?apikey={MP_API_TOKEN}",
+                        },
+                        "purpose": "决定继续会话、初始化偏好还是直接进入 route。",
+                        "read_fields": ["recommended_agent_behavior", "auto_run_command", "confirm_command"],
+                    },
+                    {
+                        "step": "route",
+                        "helper_command": "python3 scripts/aro_request.py route '<用户原始指令>' --session 'agent:<会话ID>' --summary-only",
+                        "http_call": {
+                            "method": "POST",
+                            "endpoint": "/api/v1/plugin/AgentResourceOfficer/assistant/route",
+                            "url_template": "{base_url}/api/v1/plugin/AgentResourceOfficer/assistant/route?apikey={MP_API_TOKEN}",
+                        },
+                        "purpose": "执行自然语言主入口。",
+                        "read_fields": [
+                            "recommended_agent_behavior",
+                            "auto_run_command",
+                            "confirm_command",
+                            "preferred_command",
+                            "compact_commands",
+                        ],
+                    },
+                    {
+                        "step": "followup",
+                        "helper_command": "python3 scripts/aro_request.py followup --session 'agent:<会话ID>' --summary-only",
+                        "http_call": {
+                            "method": "POST",
+                            "endpoint": "/api/v1/plugin/AgentResourceOfficer/assistant/action",
+                            "url_template": "{base_url}/api/v1/plugin/AgentResourceOfficer/assistant/action?apikey={MP_API_TOKEN}",
+                        },
+                        "purpose": "执行计划后继续追踪下载、入库或失败诊断。",
+                        "read_fields": ["recommended_agent_behavior", "auto_run_command", "followup_summary"],
+                    },
+                ],
+                "auto_rule": "优先读取 recommended_agent_behavior；只读步骤可自动续跑，写入步骤默认确认。",
+            },
+            "mp_builtin_agent": {
+                "label": "MP 内置智能体最小执行流",
+                "transport": "moviepilot_agent_tool",
+                "steps": [
+                    {
+                        "step": "request_templates",
+                        "tool": "agent_resource_officer_request_templates",
+                        "tool_args": {"recipe": "external_agent", "compact": True},
+                        "purpose": "读取最小流程、确认策略和推荐入口。",
+                        "read_fields": ["orchestration_contract", "entry_patterns", "recommended_recipe_detail"],
+                    },
+                    {
+                        "step": "route",
+                        "tool": "agent_resource_officer_smart_entry",
+                        "tool_args": {"text": "<用户原始指令>"},
+                        "purpose": "处理搜索、链接、登录状态等主入口。",
+                        "read_fields": ["recommended_agent_behavior", "preferred_command", "compact_commands"],
+                    },
+                    {
+                        "step": "followup",
+                        "tool": "agent_resource_officer_execution_followup",
+                        "tool_args": {},
+                        "purpose": "执行计划后继续查看下载、入库和失败状态。",
+                        "read_fields": ["followup_summary", "preferred_command", "compact_commands"],
+                    },
+                ],
+                "auto_rule": "依然遵守服务端 compact 协议；不要在模型侧拼底层资源站点 API。",
+            },
+            "feishu_channel": {
+                "label": "飞书入口最小执行流",
+                "transport": "feishu_channel",
+                "steps": [
+                    {
+                        "step": "message_in",
+                        "channel": "feishu",
+                        "purpose": "用户消息进入内置 Channel。",
+                        "read_fields": ["session", "text", "reply_target"],
+                    },
+                    {
+                        "step": "route",
+                        "internal": "route / pick / followup",
+                        "purpose": "复用同一套 assistant 协议，不维护单独状态机。",
+                        "read_fields": ["recommended_agent_behavior", "preferred_command", "compact_commands"],
+                    },
+                    {
+                        "step": "reply",
+                        "channel": "feishu",
+                        "purpose": "按确认策略回消息、展示编号或提示下一步。",
+                        "read_fields": ["display_command", "confirm_command", "message"],
+                    },
+                ],
+                "auto_rule": "飞书只负责消息承载；写入动作依然由插件服务端统一确认。",
+            },
+        }
         recommended_sequence = [
             {
                 "step": "bootstrap",
@@ -10954,6 +11066,7 @@ class AgentResourceOfficer(_PluginBase):
             recommended_recipe_detail["execution_loop_contract"] = external_agent_execution_loop_contract
             recommended_recipe_detail["entry_patterns"] = entry_patterns
             recommended_recipe_detail["orchestration_contract"] = orchestration_contract
+            recommended_recipe_detail["entry_playbooks"] = entry_playbooks
         confirmation_templates = recommended_recipe_detail.get("confirmation_required_templates") or []
         recommended_recipe_detail["first_confirmation_template"] = confirmation_templates[0] if confirmation_templates else ""
         recommended_recipe_detail["confirmation_message"] = (
@@ -10995,6 +11108,7 @@ class AgentResourceOfficer(_PluginBase):
             "external_agent_execution_loop_contract": external_agent_execution_loop_contract,
             "entry_patterns": entry_patterns,
             "orchestration_contract": orchestration_contract,
+            "entry_playbooks": entry_playbooks,
         }
 
     def _format_assistant_request_templates_text(self, data: Optional[Dict[str, Any]] = None) -> str:
@@ -11052,6 +11166,17 @@ class AgentResourceOfficer(_PluginBase):
                     label=self._clean_text(item.get("label")) or key,
                     start=self._clean_text(item.get("start_with")) or "",
                     route=self._clean_text(item.get("route_with")) or "",
+                )
+            )
+        entry_playbooks = payload.get("entry_playbooks") or detail.get("entry_playbooks") or {}
+        external_playbook = (entry_playbooks.get("external_agent") or {}).get("steps") or []
+        if external_playbook:
+            lines.append(
+                "外部智能体脚手架："
+                + " -> ".join(
+                    self._clean_text(item.get("step"))
+                    for item in external_playbook
+                    if self._clean_text(item.get("step"))
                 )
             )
         for name in [
@@ -11322,10 +11447,12 @@ class AgentResourceOfficer(_PluginBase):
             and len(external_recipe_request_templates.get("external_agent_execution_loop_contract") or []) >= 5
             and ((external_recipe_request_templates.get("orchestration_contract") or {}).get("recommended_first_call")) == "startup"
             and bool(((external_recipe_request_templates.get("entry_patterns") or {}).get("mp_builtin_agent") or {}).get("route_with"))
+            and len((((external_recipe_request_templates.get("entry_playbooks") or {}).get("external_agent") or {}).get("steps") or [])) >= 4
             and bool((external_recipe_detail.get("execution_policy_contract") or {}).get("auto_continue"))
             and len(external_recipe_detail.get("execution_loop_contract") or []) >= 5
             and ((external_recipe_detail.get("orchestration_contract") or {}).get("recommended_route_call")) == "route --summary-only"
             and bool(((external_recipe_detail.get("entry_patterns") or {}).get("feishu_channel") or {}).get("route_with"))
+            and bool(((((external_recipe_detail.get("entry_playbooks") or {}).get("mp_builtin_agent") or {}).get("steps") or [{}])[0]).get("tool"))
             and any(
                 self._clean_text(item.get("step")) == "policy"
                 for item in (external_recipe_detail.get("execution_loop_contract") or [])

@@ -38,11 +38,12 @@
     "name": "Agent影视助手",
     "description": "统一承接影巢搜索/解锁、115 转存、夸克转存、飞书入口与智能体接口的资源工作流主插件。",
     "labels": "Agent,影巢,HDHive,115,夸克,Quark,智能体,转存,解锁",
-    "version": "0.2.65",
+    "version": "0.2.66",
     "icon": "agentresourceofficer.png",
     "author": "liuyuexi1987",
     "level": 1,
     "history": {
+      "0.2.66": "为 request_templates 增加三类入口的 entry_playbooks，直接给出 helper 命令、HTTP 端点、Tool 名称和推荐读取字段，进一步减少外部智能体与 MP 内置智能体的接入编排逻辑。",
       "0.2.65": "为 request_templates 和 helper 增加模板编排元数据，明确服务端/客户端角色、三类入口范式，以及 startup -> decide -> route -> followup 的推荐最小执行流。",
       "0.2.64": "把外部智能体执行契约与最小执行循环下沉到 request_templates 返回；新接入的智能体现在可以直接从模板元数据拿到 startup -> decide -> route -> policy -> followup 脚手架。",
       "0.2.63": "为 compact 顶层短命令增加执行语义字段：command_policy、preferred_requires_confirmation、fallback_requires_confirmation、can_auto_run_preferred；外部智能体现在可以机械判断 直接读 还是 先确认再写。",

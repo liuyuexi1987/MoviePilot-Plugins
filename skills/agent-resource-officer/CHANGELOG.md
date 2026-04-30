@@ -1,5 +1,10 @@
 # agent-resource-officer changelog
 
+## 0.1.39
+
+- Added `entry_playbooks` to the helper-facing external-agent payload and request-template summaries so agents can read ready-to-run helper commands, HTTP endpoints, Tool names, and recommended fields from one place.
+- Tightened helper selftest coverage for the new playbook metadata and missing-detail request-template summaries.
+
 ## 0.1.38
 
 - Added orchestration metadata to the helper and template summaries, including service/client roles, entry patterns, and the preferred startup -> decide -> route -> followup flow.
