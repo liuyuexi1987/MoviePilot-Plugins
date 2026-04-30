@@ -131,6 +131,8 @@ python3 scripts/aro_request.py pick 1
 
 搜索类响应可能带有 `score_summary`，包含 `best` 和 `top_recommendations`。外部智能体应优先读取这个结构化摘要，而不是解析长文本；存在 `hard_risk_reasons` 时不要自动执行，`risk_reasons` 只作为确认前需要解释的提醒。
 
+`score_summary.decision` 是优先读取的下一步建议层，里面会给出 `label`、`decision_hint` 和 `recommended_commands`。外部智能体应直接复用这组命令提示，不要自己再拼另一套确认话术。
+
 评分由插件内置规则执行。外部智能体如需解释规则，可读取 `scoring-policy` 或 `capabilities.scoring_policy`；不要在智能体侧重新打分，也不要绕过 `hard_risk_reasons`。
 
 `config-check` 只检查连接配置来源和是否存在，不输出真实 API Key。

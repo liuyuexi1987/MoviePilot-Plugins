@@ -528,7 +528,8 @@ def main() -> int:
             )
             assert_ok(
                 "route_mp_search_score_summary",
-                bool((mp_search_data.get("score_summary") or {}).get("best")),
+                bool((mp_search_data.get("score_summary") or {}).get("best"))
+                and isinstance(((mp_search_data.get("score_summary") or {}).get("decision") or {}).get("recommended_commands"), list),
                 json.dumps(mp_search_data.get("score_summary") or {}, ensure_ascii=False)[:240],
             )
 
@@ -536,7 +537,8 @@ def main() -> int:
             mp_best_data = assert_route_action("route_mp_search_best", mp_best, "mp_search_best_detail")
             assert_ok(
                 "route_mp_search_best_score_summary",
-                bool((mp_best_data.get("score_summary") or {}).get("best")),
+                bool((mp_best_data.get("score_summary") or {}).get("best"))
+                and bool(((mp_best_data.get("score_summary") or {}).get("decision") or {}).get("decision_hint")),
                 json.dumps(mp_best_data.get("score_summary") or {}, ensure_ascii=False)[:240],
             )
 
@@ -743,7 +745,8 @@ def main() -> int:
             movie_to_mp_data = assert_route_action("route_recommend_to_mp", movie_to_mp, "mp_media_search")
             assert_ok(
                 "route_recommend_to_mp_scored",
-                bool((movie_to_mp_data.get("score_summary") or {}).get("best")),
+                bool((movie_to_mp_data.get("score_summary") or {}).get("best"))
+                and isinstance(((movie_to_mp_data.get("score_summary") or {}).get("decision") or {}).get("recommended_commands"), list),
                 json.dumps(movie_to_mp_data.get("score_summary") or {}, ensure_ascii=False)[:240],
             )
             movie_recommend_pansou = route(base_url, api_key, sessions[6], "热门电影")
@@ -752,7 +755,8 @@ def main() -> int:
             movie_to_pansou_data = assert_route_action("route_recommend_to_pansou", movie_to_pansou, "pansou_search")
             assert_ok(
                 "route_recommend_to_pansou_scored",
-                bool((movie_to_pansou_data.get("score_summary") or {}).get("best")),
+                bool((movie_to_pansou_data.get("score_summary") or {}).get("best"))
+                and isinstance(((movie_to_pansou_data.get("score_summary") or {}).get("decision") or {}).get("recommended_commands"), list),
                 json.dumps(movie_to_pansou_data.get("score_summary") or {}, ensure_ascii=False)[:240],
             )
 

@@ -115,7 +115,7 @@ class AgentResourceOfficer(_PluginBase):
     plugin_name = "Agent影视助手"
     plugin_desc = "统一承接影巢、115、夸克、飞书与智能体入口的资源工作流主插件。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png"
-    plugin_version = "0.2.55"
+    plugin_version = "0.2.56"
     request_templates_schema_version = "request_templates.v1"
     plugin_author = "liuyuexi1987"
     author_url = "https://github.com/liuyuexi1987"
@@ -3526,6 +3526,19 @@ class AgentResourceOfficer(_PluginBase):
             suffix = "不建议自动"
         return f"{value}分 {suffix}"
 
+    @staticmethod
+    def _score_decision_label(value: Any) -> str:
+        action = AgentResourceOfficer._clean_text(value)
+        if action == "ask_confirm":
+            return "建议确认"
+        if action == "do_not_auto":
+            return "不建议自动"
+        if action == "auto_ingest_cloud":
+            return "可自动入库"
+        if action == "auto_download_pt":
+            return "可自动下载"
+        return action or "待判断"
+
     def _score_brief_item(self, item: Dict[str, Any], fallback_index: int = 0) -> Dict[str, Any]:
         current = dict(item or {})
         score = current.get("score") if isinstance(current.get("score"), dict) else {}
@@ -3593,7 +3606,7 @@ class AgentResourceOfficer(_PluginBase):
         confirm_count = len([item for item in scored if item.get("recommended_action") == "ask_confirm"])
         blocked_count = len([item for item in scored if item.get("hard_risk_reasons")])
         warning_count = len([item for item in scored if item.get("risk_reasons")])
-        return {
+        summary = {
             "total_scored": len(scored),
             "auto_count": auto_count,
             "confirm_count": confirm_count,
@@ -3602,6 +3615,76 @@ class AgentResourceOfficer(_PluginBase):
             "best": scored[0] if scored else None,
             "top_recommendations": scored[:max(1, min(10, self._safe_int(limit, 5)))],
         }
+        summary["decision"] = self._score_summary_decision(summary)
+        return summary
+
+    def _score_summary_decision(self, summary: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        data = dict(summary or {})
+        best = data.get("best") if isinstance(data.get("best"), dict) else {}
+        if not best:
+            return {
+                "stage": "no_scored_items",
+                "label": "暂无评分结果",
+                "requires_confirmation": False,
+                "prefer_plan_first": True,
+                "decision_hint": "当前没有可评分条目，先完成搜索或选择后再判断。",
+                "recommended_commands": [],
+            }
+        choice = self._safe_int(best.get("index"), 0)
+        source_type = self._clean_text(best.get("source_type")).lower()
+        recommended_action = self._clean_text(best.get("recommended_action"))
+        title = self._clean_text(best.get("title"))
+        hard_risks = [self._clean_text(value) for value in (best.get("hard_risk_reasons") or []) if self._clean_text(value)]
+        risks = [self._clean_text(value) for value in (best.get("risk_reasons") or []) if self._clean_text(value)]
+        risks = [risk for risk in risks if risk not in hard_risks]
+        is_pt = source_type == "pt"
+        detail_command = f"选择 {choice}" if is_pt else f"选择 {choice} 详情"
+        plan_command = f"下载{choice}" if is_pt else f"计划选择 {choice}"
+        commands = [command for command in [detail_command if choice else "", plan_command if choice else "", "执行计划"] if command]
+        if best.get("can_auto_execute"):
+            hint = f"当前最高分候选是 #{choice}{'：' + title if title else ''}，已达到自动化阈值，但默认仍建议先生成计划再执行。"
+            stage = "auto_candidate"
+        elif hard_risks:
+            hint = f"当前最高分候选是 #{choice}{'：' + title if title else ''}，但存在硬风险，不能自动执行。"
+            stage = "blocked"
+        elif recommended_action == "ask_confirm":
+            hint = f"当前最高分候选是 #{choice}{'：' + title if title else ''}，风险可控，建议先看详情再决定。"
+            stage = "confirm"
+        else:
+            hint = f"当前最高分候选是 #{choice}{'：' + title if title else ''}，但综合评分偏低，不建议直接处理。"
+            stage = "low_score"
+        return {
+            "stage": stage,
+            "label": self._score_decision_label("auto_download_pt" if best.get("can_auto_execute") and is_pt else "auto_ingest_cloud" if best.get("can_auto_execute") else recommended_action),
+            "source_type": source_type,
+            "choice": choice,
+            "title": title[:160],
+            "score": self._safe_int(best.get("score"), 0),
+            "requires_confirmation": not bool(best.get("can_auto_execute")),
+            "prefer_plan_first": True,
+            "recommended_commands": commands,
+            "decision_hint": hint,
+            "top_hard_risk": hard_risks[0] if hard_risks else "",
+            "top_warning": risks[0] if risks else "",
+        }
+
+    @staticmethod
+    def _format_score_summary_decision_lines(summary: Optional[Dict[str, Any]]) -> List[str]:
+        data = dict(summary or {})
+        decision = data.get("decision") if isinstance(data.get("decision"), dict) else {}
+        if not decision:
+            return []
+        lines: List[str] = []
+        label = AgentResourceOfficer._clean_text(decision.get("label"))
+        hint = AgentResourceOfficer._clean_text(decision.get("decision_hint"))
+        commands = [AgentResourceOfficer._clean_text(item) for item in (decision.get("recommended_commands") or []) if AgentResourceOfficer._clean_text(item)]
+        if label:
+            lines.append(f"决策建议：{label}")
+        if hint:
+            lines.append(f"建议：{hint}")
+        if commands:
+            lines.append("下一步：" + " / ".join(commands))
+        return lines
 
     def _best_scored_source_item(self, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         candidates = [
@@ -3623,6 +3706,7 @@ class AgentResourceOfficer(_PluginBase):
     def _format_cloud_item_detail_text(self, item: Dict[str, Any], *, title: str = "云盘资源详情") -> str:
         current = dict(item or {})
         score = current.get("score") if isinstance(current.get("score"), dict) else {}
+        score_summary = self._score_summary([current], limit=1) if score else {}
         index = self._safe_int(current.get("index") or current.get("pick_index"), 0)
         name = (
             self._clean_text(current.get("note"))
@@ -3661,8 +3745,7 @@ class AgentResourceOfficer(_PluginBase):
                 lines.append("硬风险：" + "；".join(hard_risks[:6]))
             if risks:
                 lines.append("提醒：" + "；".join(risks[:6]))
-        if index:
-            lines.append(f"下一步：确认处理请回复“选择 {index}”。")
+        lines.extend(self._format_score_summary_decision_lines(score_summary))
         return "\n".join(lines)
 
     def _assistant_scoring_policy_public_data(self) -> Dict[str, Any]:
@@ -3725,6 +3808,7 @@ class AgentResourceOfficer(_PluginBase):
                 "read_fields": [
                     "best",
                     "top_recommendations",
+                    "decision",
                     "score",
                     "score_level",
                     "recommended_action",
@@ -3732,6 +3816,13 @@ class AgentResourceOfficer(_PluginBase):
                     "score_reasons",
                     "risk_reasons",
                     "hard_risk_reasons",
+                ],
+                "decision_fields": [
+                    "stage",
+                    "label",
+                    "choice",
+                    "decision_hint",
+                    "recommended_commands",
                 ],
                 "blocked_count": "只统计 hard_risk_reasons，不统计缺字幕等软提醒",
                 "warning_count": "统计 risk_reasons，用于解释需要用户确认的原因",
@@ -3800,6 +3891,7 @@ class AgentResourceOfficer(_PluginBase):
     def _format_mp_search_text(self, keyword: str, message_text: str, preview: List[Dict[str, Any]]) -> str:
         lines = [message_text.strip()] if message_text else [f"MP 原生搜索：{keyword}"]
         if preview:
+            score_summary = self._score_summary(preview, limit=5)
             lines.append("")
             lines.append("PT 评分摘要：")
             for item in preview[:10]:
@@ -3820,7 +3912,8 @@ class AgentResourceOfficer(_PluginBase):
                 elif risks:
                     details.append("提醒：" + "；".join(str(item) for item in risks[:2]))
                 lines.append("   " + " | ".join(details))
-            lines.append("下载/订阅属于写入动作，默认请先用 dry_run 生成 plan_id，再确认执行。")
+            lines.extend(self._format_score_summary_decision_lines(score_summary))
+            lines.append("下载/订阅属于写入动作，默认请先生成 plan_id，再确认执行。")
         return "\n".join(line for line in lines if line)
 
     async def _assistant_mp_media_detail(
@@ -3950,6 +4043,7 @@ class AgentResourceOfficer(_PluginBase):
         hard_risks = [str(value) for value in (score.get("hard_risk_reasons") or []) if value]
         risks = [str(value) for value in (score.get("risk_reasons") or []) if value]
         risks = [risk for risk in risks if risk not in hard_risks]
+        score_summary = self._score_summary([item], limit=1)
         if reasons:
             lines.append("加分理由：" + "；".join(reasons[:6]))
         if hard_risks:
@@ -3958,7 +4052,7 @@ class AgentResourceOfficer(_PluginBase):
             lines.append("提醒：" + "；".join(risks[:6]))
         if torrent.get("page_url"):
             lines.append(f"详情页：{torrent.get('page_url')}")
-        lines.append(f"下一步：确认下载请发“下载{choice}”，会先生成 plan_id，不会静默下载。")
+        lines.extend(self._format_score_summary_decision_lines(score_summary))
         self._save_session(cache_key, {
             "kind": "assistant_mp",
             "stage": "search_result",
@@ -3975,7 +4069,7 @@ class AgentResourceOfficer(_PluginBase):
                 "ok": True,
                 "choice": choice,
                 "item": item,
-                "score_summary": self._score_summary([item], limit=1),
+                "score_summary": score_summary,
             }),
         }
 
@@ -11734,8 +11828,7 @@ class AgentResourceOfficer(_PluginBase):
                 return text
         return ""
 
-    @staticmethod
-    def _format_resource_lines(resources: List[Dict[str, Any]], candidate: Optional[Dict[str, Any]] = None) -> str:
+    def _format_resource_lines(self, resources: List[Dict[str, Any]], candidate: Optional[Dict[str, Any]] = None) -> str:
         lines = []
         if candidate:
             candidate_title = str(candidate.get("title") or "未命名")
@@ -11786,8 +11879,9 @@ class AgentResourceOfficer(_PluginBase):
                 lines.append(f"   字幕：{subtitle}")
             if remark:
                 lines.append(f"   详情：{remark}")
-        lines.append("下一步：建议先回复“计划选择 1”生成待确认计划；确认后再回复“执行计划”。")
-        lines.append("只有明确要立即解锁/转存时，才直接回复“选择 编号”。")
+        summary = self._score_summary(resources, limit=5)
+        lines.extend(self._format_score_summary_decision_lines(summary))
+        lines.append("说明：云盘写入默认建议先走“计划选择 编号”，确认后再“执行计划”。")
         return "\n".join(lines)
 
     @staticmethod
