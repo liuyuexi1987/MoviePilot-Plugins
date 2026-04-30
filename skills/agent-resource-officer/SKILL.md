@@ -424,14 +424,15 @@ Download task management also uses the same route. Querying tasks is read-only. 
 
 ```text
 下载任务
-下载历史
-下载历史 蜘蛛侠
-追踪 蜘蛛侠
-入库状态 蜘蛛侠
+记录
+记录 蜘蛛侠
+状态 蜘蛛侠
+入库 蜘蛛侠
 整理失败 蜘蛛侠
-最近入库
+最近
 最近下载
-为什么没入库 蜘蛛侠
+诊断 蜘蛛侠
+后续
 识别 蜘蛛侠
 选择 1
 最佳片源

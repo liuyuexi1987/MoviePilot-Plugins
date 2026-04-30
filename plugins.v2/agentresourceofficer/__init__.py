@@ -115,7 +115,7 @@ class AgentResourceOfficer(_PluginBase):
     plugin_name = "Agent影视助手"
     plugin_desc = "统一承接影巢、115、夸克、飞书与智能体入口的资源工作流主插件。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png"
-    plugin_version = "0.2.57"
+    plugin_version = "0.2.58"
     request_templates_schema_version = "request_templates.v1"
     plugin_author = "liuyuexi1987"
     author_url = "https://github.com/liuyuexi1987"
@@ -4957,21 +4957,22 @@ class AgentResourceOfficer(_PluginBase):
     def _assistant_followup_command(self, action_name: str, *, keyword: str = "", hash_value: str = "") -> str:
         target = self._clean_text(keyword or hash_value)
         mapping = {
+            "query_execution_followup": "后续",
             "query_mp_download_tasks": "下载任务",
             "query_mp_subscribes": "订阅列表",
         }
         if action_name in mapping:
             return mapping[action_name]
         if action_name == "query_mp_ingest_status":
-            return f"入库状态 {target}".strip()
+            return f"入库 {target}".strip()
         if action_name == "query_mp_lifecycle_status":
-            return f"追踪 {target}".strip()
+            return f"状态 {target}".strip()
         if action_name == "query_mp_download_history":
-            return f"下载历史 {target}".strip()
+            return f"记录 {target}".strip()
         if action_name == "query_mp_transfer_history":
-            return f"入库历史 {target}".strip()
+            return f"入库记录 {target}".strip()
         if action_name == "query_mp_local_diagnose":
-            return f"本地诊断 {target}".strip()
+            return f"诊断 {target}".strip()
         if action_name == "start_mp_media_search":
             return f"MP搜索 {target}".strip()
         return ""
@@ -8553,13 +8554,14 @@ class AgentResourceOfficer(_PluginBase):
             "7. text=MP搜索 蜘蛛侠；下载1 会先生成计划",
             "8. text=下载任务；暂停下载 1 / 恢复下载 1 / 删除下载 1 会先生成计划",
             "9. text=站点状态；下载器状态 用于排查 PT 搜索/下载环境",
-            "10. text=下载历史 片名 用于判断资源是否提交过下载并进入整理流程",
-            "11. text=追踪 片名 一次查看下载任务、下载历史和入库历史",
+            "10. text=记录 片名 用于判断资源是否提交过下载并进入整理流程",
+            "11. text=状态 片名 一次查看下载任务、下载历史和入库历史",
             "12. text=识别 片名 使用 MoviePilot 原生识别确认 TMDB/Douban/IMDB 信息",
             "13. text=订阅列表；搜索订阅 1 / 暂停订阅 1 / 恢复订阅 1 / 删除订阅 1 会先生成计划",
-            "14. text=入库历史；入库失败 片名 用于判断下载后是否已经整理落库",
+            "14. text=入库记录；入库失败 片名 用于判断下载后是否已经整理落库",
             "15. text=执行计划 执行当前会话最近待执行计划；text=执行 plan-xxxx 精确执行指定计划",
             "16. text=偏好 / 保存偏好 4K 杜比 HDR 中字 全集 做种>=3 影巢积分20 不自动入库 / 重置偏好",
+            "17. text=后续 / 最近 / 入库 片名 / 诊断 片名 是更省 token 的本地/PT 跟踪短命令",
             "smart_pick 常用示例：",
             "1. choice=1",
             "2. action=详情",
@@ -11231,6 +11233,16 @@ class AgentResourceOfficer(_PluginBase):
             options["keyword"] = ""
             options["is_gambler"] = "true"
         elif compact in {
+            "后续",
+            "执行后追踪",
+            "继续追踪",
+            "followup",
+            "postexecute",
+        }:
+            options["action"] = "execution_followup"
+            options["mode"] = ""
+            options["keyword"] = ""
+        elif compact in {
             "下载任务",
             "下载状态",
             "正在下载",
@@ -11257,6 +11269,7 @@ class AgentResourceOfficer(_PluginBase):
         elif compact in {
             "下载历史",
             "下载记录",
+            "记录",
             "历史下载",
             "downloadhistory",
         }:
@@ -11272,11 +11285,22 @@ class AgentResourceOfficer(_PluginBase):
             options["keyword"] = ""
             options["download_only"] = "true"
         elif compact in {
+            "最近",
+            "最近动态",
+            "动态",
+            "recentactivity",
+        }:
+            options["action"] = "mp_recent_activity"
+            options["mode"] = ""
+            options["keyword"] = ""
+        elif compact in {
             "追踪",
             "资源追踪",
             "下载追踪",
             "媒体状态",
             "落库状态",
+            "状态",
+            "进度",
             "lifecyclestatus",
         }:
             options["action"] = "mp_lifecycle_status"
@@ -11285,6 +11309,7 @@ class AgentResourceOfficer(_PluginBase):
         elif compact in {
             "入库状态",
             "本地入库",
+            "入库",
             "ingeststatus",
         }:
             options["action"] = "mp_ingest_status"
@@ -11336,6 +11361,7 @@ class AgentResourceOfficer(_PluginBase):
             "入库历史",
             "整理历史",
             "转移历史",
+            "入库记录",
             "最近整理",
             "transferhistory",
         }:
@@ -11372,6 +11398,15 @@ class AgentResourceOfficer(_PluginBase):
             options["mode"] = ""
             options["keyword"] = ""
             options["status"] = "success"
+        elif compact in {
+            "本地诊断",
+            "诊断",
+            "失败原因",
+            "localdiagnose",
+        }:
+            options["action"] = "mp_local_diagnose"
+            options["mode"] = ""
+            options["keyword"] = ""
         else:
             for prefix, action in [
                 ("执行计划", "execute_plan"),
@@ -11432,13 +11467,13 @@ class AgentResourceOfficer(_PluginBase):
                     options["mode"] = ""
                     options["keyword"] = prefix_match[1]
             if not options.get("action"):
-                prefix_match = AgentResourceOfficer._match_command_prefix(raw, ["下载历史", "下载记录", "最近下载", "历史下载"])
+                prefix_match = AgentResourceOfficer._match_command_prefix(raw, ["下载历史", "下载记录", "记录", "最近下载", "历史下载"])
                 if prefix_match:
                     options["action"] = "mp_download_history"
                     options["mode"] = ""
                     options["keyword"] = prefix_match[1]
             if not options.get("action"):
-                prefix_match = AgentResourceOfficer._match_command_prefix(raw, ["资源追踪", "下载追踪", "媒体状态", "落库状态", "追踪"])
+                prefix_match = AgentResourceOfficer._match_command_prefix(raw, ["资源追踪", "下载追踪", "媒体状态", "落库状态", "状态", "进度", "追踪"])
                 if prefix_match:
                     options["action"] = "mp_lifecycle_status"
                     options["mode"] = ""
@@ -11496,6 +11531,7 @@ class AgentResourceOfficer(_PluginBase):
                     ("成功入库", "success"),
                     ("成功整理", "success"),
                     ("入库历史", "all"),
+                    ("入库记录", "all"),
                     ("整理历史", "all"),
                     ("转移历史", "all"),
                     ("最近入库", "all"),
@@ -11508,8 +11544,15 @@ class AgentResourceOfficer(_PluginBase):
                         options["keyword"] = prefix_match[1]
                         options["status"] = status_name
                         break
+            if not options.get("action") and raw.startswith("入库"):
+                blocked_prefixes = ("入库失败", "入库成功", "入库历史", "入库记录", "入库状态")
+                if not any(raw.startswith(prefix) for prefix in blocked_prefixes):
+                    remain_text = raw[len("入库"):].lstrip(" ：:").strip()
+                    options["action"] = "mp_ingest_status"
+                    options["mode"] = ""
+                    options["keyword"] = remain_text
             if not options.get("action"):
-                prefix_match = AgentResourceOfficer._match_command_prefix(raw, ["为什么没入库", "本地诊断"])
+                prefix_match = AgentResourceOfficer._match_command_prefix(raw, ["为什么没入库", "本地诊断", "诊断", "失败原因"])
                 if prefix_match:
                     options["action"] = "mp_local_diagnose"
                     options["mode"] = ""
@@ -13671,6 +13714,12 @@ class AgentResourceOfficer(_PluginBase):
                 limit=self._safe_int(body.get("limit"), 10),
                 download_only=self._parse_bool_value(body.get("download_only") or parsed.get("download_only"), False),
                 transfer_only=self._parse_bool_value(body.get("transfer_only") or parsed.get("transfer_only"), False),
+            ))
+        if assistant_action == "execution_followup":
+            return finish(await self._assistant_execution_followup(
+                session=session,
+                cache_key=cache_key,
+                plan_id=self._clean_text(body.get("plan_id") or parsed.get("plan_id")),
             ))
         if assistant_action == "mp_local_diagnose":
             return finish(await self._assistant_mp_local_diagnose(

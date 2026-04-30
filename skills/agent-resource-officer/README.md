@@ -274,11 +274,15 @@ python3 scripts/aro_request.py route --text "执行 plan-xxxx" --session agent:d
 
 ```bash
 python3 scripts/aro_request.py route --text "下载任务"
-python3 scripts/aro_request.py route --text "下载历史"
-python3 scripts/aro_request.py route --text "下载历史 蜘蛛侠"
+python3 scripts/aro_request.py route --text "记录"
+python3 scripts/aro_request.py route --text "记录 蜘蛛侠"
 python3 scripts/aro_request.py workflow --workflow mp_download_history --keyword "蜘蛛侠" --limit 10
-python3 scripts/aro_request.py route --text "追踪 蜘蛛侠"
+python3 scripts/aro_request.py route --text "状态 蜘蛛侠"
 python3 scripts/aro_request.py workflow --workflow mp_lifecycle_status --keyword "蜘蛛侠" --limit 5
+python3 scripts/aro_request.py route --text "后续"
+python3 scripts/aro_request.py route --text "入库 蜘蛛侠"
+python3 scripts/aro_request.py route --text "诊断 蜘蛛侠"
+python3 scripts/aro_request.py route --text "最近"
 python3 scripts/aro_request.py route --text "识别 蜘蛛侠"
 python3 scripts/aro_request.py workflow --workflow mp_media_detail --keyword "蜘蛛侠"
 python3 scripts/aro_request.py route --text "暂停下载 1"

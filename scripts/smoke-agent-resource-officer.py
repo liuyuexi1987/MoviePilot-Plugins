@@ -687,7 +687,7 @@ def main() -> int:
                 }, ensure_ascii=False),
             )
 
-            download_history = route(base_url, api_key, sessions[4], f"下载历史{args.keyword}")
+            download_history = route(base_url, api_key, sessions[4], f"记录{args.keyword}")
             download_history_data = assert_route_action("route_download_history_compact", download_history, "mp_download_history")
             download_history_recover = recover(base_url, api_key, sessions[4])
             download_history_recover_data = data(download_history_recover)
@@ -698,7 +698,7 @@ def main() -> int:
                 json.dumps(download_history_recover_data.get("recovery") or {}, ensure_ascii=False),
             )
 
-            lifecycle = route(base_url, api_key, sessions[4], f"追踪{args.keyword}")
+            lifecycle = route(base_url, api_key, sessions[4], f"状态{args.keyword}")
             lifecycle_data = assert_route_action("route_lifecycle_compact", lifecycle, "mp_lifecycle_status")
             lifecycle_recover = recover(base_url, api_key, sessions[4])
             lifecycle_recover_data = data(lifecycle_recover)
@@ -709,7 +709,7 @@ def main() -> int:
                 json.dumps(lifecycle_recover_data.get("recovery") or {}, ensure_ascii=False),
             )
 
-            ingest_status = route(base_url, api_key, sessions[4], f"入库状态{args.keyword}")
+            ingest_status = route(base_url, api_key, sessions[4], f"入库{args.keyword}")
             ingest_status_data = assert_route_action("route_ingest_status_compact", ingest_status, "mp_ingest_status")
             assert_ok(
                 "route_ingest_status_has_diagnosis",
@@ -727,10 +727,10 @@ def main() -> int:
                 json.dumps(transfer_failed_data.get("diagnosis_summary") or {}, ensure_ascii=False)[:240],
             )
 
-            recent_ingest = route(base_url, api_key, sessions[4], "最近入库")
+            recent_ingest = route(base_url, api_key, sessions[4], "最近")
             recent_ingest_data = assert_route_action("route_recent_ingest_compact", recent_ingest, "mp_recent_activity")
             assert_ok(
-                "route_recent_ingest_has_transfer_history",
+                "route_recent_activity_has_transfer_history",
                 isinstance((recent_ingest_data.get("transfer_history") or {}).get("items"), list),
                 json.dumps(recent_ingest_data.get("transfer_history") or {}, ensure_ascii=False)[:240],
             )
@@ -743,7 +743,7 @@ def main() -> int:
                 json.dumps(recent_download_data.get("download_history") or {}, ensure_ascii=False)[:240],
             )
 
-            local_diagnose = route(base_url, api_key, sessions[4], f"为什么没入库{args.keyword}")
+            local_diagnose = route(base_url, api_key, sessions[4], f"诊断{args.keyword}")
             local_diagnose_data = assert_route_action("route_local_diagnose_compact", local_diagnose, "mp_local_diagnose")
             assert_ok(
                 "route_local_diagnose_has_diagnosis",
