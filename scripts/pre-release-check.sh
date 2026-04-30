@@ -43,6 +43,11 @@ while IFS= read -r shell_file; do
   bash -n "$shell_file"
 done < <(find scripts skills -name '*.sh' -type f | sort)
 echo "shell_syntax_ok"
+grep -Fq 'WORKFLOW_NAME="${WORKFLOW_NAME:-Release Preflight}"' scripts/verify-release-preflight-artifact.sh
+grep -Fq 'exec bash scripts/verify-release-preflight-artifact.sh "$@"' scripts/verify-ci-artifact.sh
+grep -Fq 'bash scripts/release-preflight.sh' scripts/create-draft-release.sh
+grep -Fq 'bash scripts/release-preflight.sh' scripts/update-draft-release-assets.sh
+echo "release_script_entrypoints_ok"
 python3 - <<'PY'
 from pathlib import Path
 
