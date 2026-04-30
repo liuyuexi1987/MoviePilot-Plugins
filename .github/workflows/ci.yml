@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  pre-release-check:
+  release-preflight:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -20,7 +20,7 @@ jobs:
           python-version: "3.12"
       - name: Install packaging tools
         run: sudo apt-get update && sudo apt-get install -y zip rsync
-      - name: Run release checks
+      - name: Run release preflight
         run: bash scripts/release-preflight.sh
       - name: Upload release asset artifacts
         uses: actions/upload-artifact@v7
