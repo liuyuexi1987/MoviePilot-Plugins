@@ -45,37 +45,6 @@ PACKAGE_PLUGINS=(
   ZspaceMediaFreshMix
 )
 
-HELP_SHELL_SCRIPTS=(
-  scripts/repo-hygiene.sh
-  scripts/release-preflight.sh
-  scripts/pre-release-check.sh
-  scripts/check-skills.sh
-  scripts/clean-generated.sh
-  scripts/package-plugin.sh
-  scripts/package-skills.sh
-  scripts/sync-repo-layout.sh
-  scripts/sync-package-v2.sh
-  scripts/create-draft-release.sh
-  scripts/update-draft-release-assets.sh
-  scripts/generate-release-notes.sh
-  scripts/write-dist-sha256.sh
-  scripts/patch-p115strmhelper-mp-compat.sh
-  scripts/verify-release-preflight-artifact.sh
-  scripts/verify-ci-artifact.sh
-  scripts/verify-release-download.sh
-  scripts/verify-release-assets.sh
-  scripts/verify-dist.sh
-  scripts/verify-skill-dist.sh
-  scripts/print-release-summary.sh
-  scripts/print-skill-release-summary.sh
-)
-
-HELP_PYTHON_SCRIPTS=(
-  scripts/check-doc-current-state.py
-  scripts/audit-remote-branches.py
-  scripts/archive-local-branches.py
-)
-
 release_git_status() {
   git status --short -- . ':(exclude)SESSION_HANDOFF_*.md'
 }
@@ -96,47 +65,7 @@ while IFS= read -r shell_file; do
   bash -n "$shell_file"
 done < <(find scripts skills -name '*.sh' -type f | sort)
 echo "shell_syntax_ok"
-for shell_file in "${HELP_SHELL_SCRIPTS[@]}"; do
-  bash "$shell_file" --help >/dev/null
-done
-for py_file in "${HELP_PYTHON_SCRIPTS[@]}"; do
-  python3 "$py_file" --help >/dev/null
-done
-python3 - <<'PY'
-from pathlib import Path
-
-doc = Path("docs/MAINTENANCE_COMMANDS.md").read_text(encoding="utf-8")
-scripts = [
-    "repo-hygiene.sh",
-    "release-preflight.sh",
-    "pre-release-check.sh",
-    "check-skills.sh",
-    "package-plugin.sh",
-    "sync-repo-layout.sh",
-    "sync-package-v2.sh",
-    "create-draft-release.sh",
-    "update-draft-release-assets.sh",
-    "generate-release-notes.sh",
-    "write-dist-sha256.sh",
-    "patch-p115strmhelper-mp-compat.sh",
-    "verify-release-preflight-artifact.sh",
-    "verify-ci-artifact.sh",
-    "verify-release-download.sh",
-    "verify-release-assets.sh",
-    "verify-dist.sh",
-    "verify-skill-dist.sh",
-    "print-release-summary.sh",
-    "print-skill-release-summary.sh",
-    "check-doc-current-state.py",
-    "audit-remote-branches.py",
-    "archive-local-branches.py",
-]
-missing = [name for name in scripts if f"`{name}`" not in doc]
-if missing:
-    print("docs/MAINTENANCE_COMMANDS.md 缺少帮助脚本清单:")
-    print("\n".join(missing))
-    raise SystemExit(1)
-PY
+python3 scripts/check-maintenance-commands.py >/dev/null
 echo "script_help_ok"
 grep -Fq 'WORKFLOW_NAME="${WORKFLOW_NAME:-Release Preflight}"' scripts/verify-release-preflight-artifact.sh
 grep -Fq 'WORKFLOW_FILE="${WORKFLOW_FILE:-ci.yml}"' scripts/verify-release-preflight-artifact.sh
