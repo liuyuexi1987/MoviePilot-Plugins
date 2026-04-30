@@ -95,7 +95,7 @@ python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py readiness
 python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py external-agent
 ```
 
-然后按 `external-agent` 输出里的 `execution_policy_contract`、`execution_loop_contract` 和 `entry_playbooks` 接入。
+然后按 `external-agent` 输出里的 `execution_policy_contract`、`execution_loop_contract`、`entry_playbooks` 和 `deprecated_aliases` 接入。
 
 ## 从仓库复现 Skill
 
