@@ -14,7 +14,7 @@
 
 - `AIRecoginzerForwarder`: `2.0.1`
 - `AIRecognizerEnhancer`: `0.1.11`
-- `AgentResourceOfficer`: `0.2.64`
+- `AgentResourceOfficer`: `0.2.65`
 - `FeishuCommandBridgeLong`: `0.5.26`
 - `HdhiveOpenApi`: `0.3.0`
 - `HDHiveDailySign`: `1.0.0`
@@ -23,6 +23,7 @@
 
 ## 近期基础设施更新
 
+- `AgentResourceOfficer 0.2.65`：为 `request_templates` 与 helper 增加模板编排元数据，明确服务端/客户端角色、三类入口范式，以及推荐的 `startup -> decide -> route -> followup` 最小执行流。
 - `AgentResourceOfficer 0.2.64`：把外部智能体执行契约与最小执行循环下沉到 `request_templates` 返回；新接入的智能体现在可以直接从模板元数据拿到 `startup -> decide -> route -> policy -> followup` 脚手架。
 - `AgentResourceOfficer 0.2.63`：为 compact 顶层短命令增加执行语义字段：`command_policy`、`preferred_requires_confirmation`、`fallback_requires_confirmation`、`can_auto_run_preferred`；外部智能体现在可以机械判断“直接读”还是“先确认再写”。
 - `AgentResourceOfficer 0.2.62`：把 `error_summary`、`followup_summary`、`score_summary.decision` 三层短命令继续上浮到 compact 主响应顶层；外部智能体现在只读 `preferred_command` / `compact_commands` 和 `command_source` 就能续跑。
