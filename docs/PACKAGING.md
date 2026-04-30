@@ -223,4 +223,4 @@ AgentResourceOfficer-<当前版本>.zip
 - `plugin_version` 取自目标插件目录下的 `__init__.py`
 - 如果改了版本号，重新运行脚本即可生成对应文件名
 - `dist/` 目录默认不纳入 Git 版本管理
-- 提交前建议以 `bash scripts/pre-release-check.sh` 作为最终验收
+- 提交前建议以 `bash scripts/release-preflight.sh` 作为最终验收
