@@ -45,6 +45,35 @@ PACKAGE_PLUGINS=(
   ZspaceMediaFreshMix
 )
 
+HELP_SHELL_SCRIPTS=(
+  scripts/repo-hygiene.sh
+  scripts/release-preflight.sh
+  scripts/pre-release-check.sh
+  scripts/check-skills.sh
+  scripts/package-plugin.sh
+  scripts/sync-repo-layout.sh
+  scripts/sync-package-v2.sh
+  scripts/create-draft-release.sh
+  scripts/update-draft-release-assets.sh
+  scripts/generate-release-notes.sh
+  scripts/write-dist-sha256.sh
+  scripts/patch-p115strmhelper-mp-compat.sh
+  scripts/verify-release-preflight-artifact.sh
+  scripts/verify-ci-artifact.sh
+  scripts/verify-release-download.sh
+  scripts/verify-release-assets.sh
+  scripts/verify-dist.sh
+  scripts/verify-skill-dist.sh
+  scripts/print-release-summary.sh
+  scripts/print-skill-release-summary.sh
+)
+
+HELP_PYTHON_SCRIPTS=(
+  scripts/check-doc-current-state.py
+  scripts/audit-remote-branches.py
+  scripts/archive-local-branches.py
+)
+
 release_git_status() {
   git status --short -- . ':(exclude)SESSION_HANDOFF_*.md'
 }
@@ -65,6 +94,13 @@ while IFS= read -r shell_file; do
   bash -n "$shell_file"
 done < <(find scripts skills -name '*.sh' -type f | sort)
 echo "shell_syntax_ok"
+for shell_file in "${HELP_SHELL_SCRIPTS[@]}"; do
+  bash "$shell_file" --help >/dev/null
+done
+for py_file in "${HELP_PYTHON_SCRIPTS[@]}"; do
+  python3 "$py_file" --help >/dev/null
+done
+echo "script_help_ok"
 grep -Fq 'WORKFLOW_NAME="${WORKFLOW_NAME:-Release Preflight}"' scripts/verify-release-preflight-artifact.sh
 grep -Fq 'WORKFLOW_FILE="${WORKFLOW_FILE:-ci.yml}"' scripts/verify-release-preflight-artifact.sh
 grep -Fq 'exec bash scripts/verify-release-preflight-artifact.sh "$@"' scripts/verify-ci-artifact.sh
