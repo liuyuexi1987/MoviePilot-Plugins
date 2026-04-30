@@ -115,7 +115,7 @@ class AgentResourceOfficer(_PluginBase):
     plugin_name = "Agent影视助手"
     plugin_desc = "统一承接影巢、115、夸克、飞书与智能体入口的资源工作流主插件。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png"
-    plugin_version = "0.2.64"
+    plugin_version = "0.2.65"
     request_templates_schema_version = "request_templates.v1"
     plugin_author = "liuyuexi1987"
     author_url = "https://github.com/liuyuexi1987"
@@ -10674,6 +10674,72 @@ class AgentResourceOfficer(_PluginBase):
                 "when": "执行计划后继续追踪下载、入库或失败诊断。",
             },
         ]
+        entry_patterns = {
+            "external_agent": {
+                "label": "外部智能体",
+                "client_role": "客户端调度层",
+                "start_with": "startup",
+                "decide_with": "decide --summary-only",
+                "route_with": "route --summary-only",
+                "followup_with": "followup --summary-only",
+                "read_fields": [
+                    "recommended_agent_behavior",
+                    "auto_run_command",
+                    "confirm_command",
+                    "display_command",
+                    "preferred_command",
+                    "compact_commands",
+                ],
+                "notes": "适用于 WorkBuddy、Hermes、OpenClaw（小龙虾）等外部智能体；优先使用 Skill/helper。",
+            },
+            "mp_builtin_agent": {
+                "label": "MP 内置智能体",
+                "client_role": "客户端调度层",
+                "start_with": "assistant/request_templates",
+                "decide_with": "agent_resource_officer_request_templates",
+                "route_with": "agent_resource_officer_smart_entry",
+                "followup_with": "agent_resource_officer_execution_followup",
+                "read_fields": [
+                    "recommended_recipe_detail",
+                    "recommended_agent_behavior",
+                    "preferred_command",
+                    "compact_commands",
+                ],
+                "notes": "优先走 Agent Tool / request_templates，不在模型侧直拼底层资源 API。",
+            },
+            "feishu_channel": {
+                "label": "飞书入口",
+                "client_role": "客户端消息入口",
+                "start_with": "feishu message -> route",
+                "decide_with": "插件内置命令解析",
+                "route_with": "route/pick/followup",
+                "followup_with": "followup / smart_followup",
+                "read_fields": [
+                    "recommended_agent_behavior",
+                    "preferred_command",
+                    "fallback_command",
+                    "compact_commands",
+                ],
+                "notes": "飞书只负责把消息送进同一套 assistant 协议；确认策略与外部智能体保持一致。",
+            },
+        }
+        orchestration_contract = {
+            "service_role": "Agent影视助手 / AgentResourceOfficer 负责服务端能力执行。",
+            "client_role": "外部智能体、MP 内置智能体、飞书入口负责客户端调度与展示。",
+            "recommended_first_call": "startup",
+            "recommended_decision_call": "decide --summary-only",
+            "recommended_route_call": "route --summary-only",
+            "recommended_followup_call": "followup --summary-only",
+            "recommended_read_fields": [
+                "recommended_agent_behavior",
+                "auto_run_command",
+                "confirm_command",
+                "display_command",
+                "preferred_command",
+                "compact_commands",
+            ],
+            "confirmation_rule": "写入动作默认确认制；只有明确标记可自动继续的只读步骤才自动续跑。",
+        }
         recommended_sequence = [
             {
                 "step": "bootstrap",
@@ -10886,6 +10952,8 @@ class AgentResourceOfficer(_PluginBase):
         if recommended_recipe == "external_agent_quickstart":
             recommended_recipe_detail["execution_policy_contract"] = external_agent_execution_policy_contract
             recommended_recipe_detail["execution_loop_contract"] = external_agent_execution_loop_contract
+            recommended_recipe_detail["entry_patterns"] = entry_patterns
+            recommended_recipe_detail["orchestration_contract"] = orchestration_contract
         confirmation_templates = recommended_recipe_detail.get("confirmation_required_templates") or []
         recommended_recipe_detail["first_confirmation_template"] = confirmation_templates[0] if confirmation_templates else ""
         recommended_recipe_detail["confirmation_message"] = (
@@ -10925,6 +10993,8 @@ class AgentResourceOfficer(_PluginBase):
             "recommended_recipe_detail": recommended_recipe_detail,
             "external_agent_execution_policy_contract": external_agent_execution_policy_contract,
             "external_agent_execution_loop_contract": external_agent_execution_loop_contract,
+            "entry_patterns": entry_patterns,
+            "orchestration_contract": orchestration_contract,
         }
 
     def _format_assistant_request_templates_text(self, data: Optional[Dict[str, Any]] = None) -> str:
@@ -10954,6 +11024,35 @@ class AgentResourceOfficer(_PluginBase):
             lines.append(
                 "外部智能体最小循环："
                 + " -> ".join(self._clean_text(item.get("step")) for item in (detail.get("execution_loop_contract") or []) if self._clean_text(item.get("step")))
+            )
+        orchestration_contract = payload.get("orchestration_contract") or detail.get("orchestration_contract") or {}
+        if orchestration_contract:
+            lines.append(
+                "最小执行流：{startup} -> {decide} -> {route} -> policy -> {followup}".format(
+                    startup=self._clean_text(orchestration_contract.get("recommended_first_call")) or "startup",
+                    decide=self._clean_text(orchestration_contract.get("recommended_decision_call")) or "decide --summary-only",
+                    route=self._clean_text(orchestration_contract.get("recommended_route_call")) or "route --summary-only",
+                    followup=self._clean_text(orchestration_contract.get("recommended_followup_call")) or "followup --summary-only",
+                )
+            )
+            read_fields = [
+                self._clean_text(item)
+                for item in (orchestration_contract.get("recommended_read_fields") or [])
+                if self._clean_text(item)
+            ]
+            if read_fields:
+                lines.append("优先读取字段：" + " / ".join(read_fields))
+        entry_patterns = payload.get("entry_patterns") or detail.get("entry_patterns") or {}
+        for key in ["external_agent", "mp_builtin_agent", "feishu_channel"]:
+            item = entry_patterns.get(key) or {}
+            if not item:
+                continue
+            lines.append(
+                "{label}：{start} -> {route}".format(
+                    label=self._clean_text(item.get("label")) or key,
+                    start=self._clean_text(item.get("start_with")) or "",
+                    route=self._clean_text(item.get("route_with")) or "",
+                )
             )
         for name in [
             "startup_probe",
@@ -11221,8 +11320,12 @@ class AgentResourceOfficer(_PluginBase):
             and external_recipe_request_templates.get("recommended_recipe") == "external_agent_quickstart"
             and bool((external_recipe_request_templates.get("external_agent_execution_policy_contract") or {}).get("auto_continue"))
             and len(external_recipe_request_templates.get("external_agent_execution_loop_contract") or []) >= 5
+            and ((external_recipe_request_templates.get("orchestration_contract") or {}).get("recommended_first_call")) == "startup"
+            and bool(((external_recipe_request_templates.get("entry_patterns") or {}).get("mp_builtin_agent") or {}).get("route_with"))
             and bool((external_recipe_detail.get("execution_policy_contract") or {}).get("auto_continue"))
             and len(external_recipe_detail.get("execution_loop_contract") or []) >= 5
+            and ((external_recipe_detail.get("orchestration_contract") or {}).get("recommended_route_call")) == "route --summary-only"
+            and bool(((external_recipe_detail.get("entry_patterns") or {}).get("feishu_channel") or {}).get("route_with"))
             and any(
                 self._clean_text(item.get("step")) == "policy"
                 for item in (external_recipe_detail.get("execution_loop_contract") or [])

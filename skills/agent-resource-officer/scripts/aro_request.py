@@ -12,7 +12,7 @@ CONFIG_PATH = os.path.expanduser(CONFIG_PATH_DISPLAY)
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXTERNAL_AGENT_GUIDE_PATH = os.path.join(SKILL_DIR, "EXTERNAL_AGENTS.md")
 WORKBUDDY_GUIDE_PATH = EXTERNAL_AGENT_GUIDE_PATH
-HELPER_VERSION = "0.1.35"
+HELPER_VERSION = "0.1.38"
 HELPER_COMMANDS = [
     "auto",
     "commands",
@@ -209,6 +209,49 @@ def external_agent_payload():
                 "purpose": "执行计划后继续追踪下载、入库或失败诊断。",
             },
         ],
+        "entry_patterns": {
+            "external_agent": {
+                "label": "外部智能体",
+                "start_with": "startup",
+                "decide_with": "decide --summary-only",
+                "route_with": "route --summary-only",
+                "followup_with": "followup --summary-only",
+                "notes": "WorkBuddy、Hermes、OpenClaw（小龙虾）优先使用这套 Skill/helper。",
+            },
+            "mp_builtin_agent": {
+                "label": "MP 内置智能体",
+                "start_with": "assistant/request_templates",
+                "decide_with": "agent_resource_officer_request_templates",
+                "route_with": "agent_resource_officer_smart_entry",
+                "followup_with": "agent_resource_officer_execution_followup",
+                "notes": "优先调用 Agent Tool / request_templates，不在模型侧直拼资源接口。",
+            },
+            "feishu_channel": {
+                "label": "飞书入口",
+                "start_with": "飞书消息进入内置 Channel",
+                "decide_with": "插件内置命令解析",
+                "route_with": "route / pick / followup",
+                "followup_with": "followup --summary-only",
+                "notes": "飞书是消息入口，不单独维护另一套状态机。",
+            },
+        },
+        "orchestration_contract": {
+            "service_role": "Agent影视助手 / AgentResourceOfficer 负责服务端能力执行。",
+            "client_role": "外部智能体、MP 内置智能体、飞书入口负责客户端调度与展示。",
+            "recommended_first_call": "startup",
+            "recommended_decision_call": "decide --summary-only",
+            "recommended_route_call": "route --summary-only",
+            "recommended_followup_call": "followup --summary-only",
+            "recommended_read_fields": [
+                "recommended_agent_behavior",
+                "auto_run_command",
+                "confirm_command",
+                "display_command",
+                "preferred_command",
+                "compact_commands",
+            ],
+            "confirmation_rule": "写入动作默认确认制；只有明确标记可自动继续的只读步骤才自动续跑。",
+        },
         "compat_aliases": ["workbuddy"],
         "prompt": prompt,
         "tools": [
@@ -679,6 +722,8 @@ def request_templates_summary(data):
         "first_requires_confirmation": bool(first_call.get("requires_confirmation")),
         "requires_confirmation": bool(detail.get("confirmation_required_templates")),
         "confirmation_message": detail.get("confirmation_message") or "",
+        "orchestration_contract": payload.get("orchestration_contract") or detail.get("orchestration_contract") or {},
+        "entry_patterns": payload.get("entry_patterns") or detail.get("entry_patterns") or {},
     }
 
 
@@ -805,6 +850,13 @@ def selftest_result():
     template_summary = request_templates_summary({
         "data": {
             "recommended_recipe": "bootstrap",
+            "orchestration_contract": {
+                "recommended_first_call": "startup",
+                "recommended_route_call": "route --summary-only",
+            },
+            "entry_patterns": {
+                "mp_builtin_agent": {"route_with": "agent_resource_officer_smart_entry"},
+            },
             "recommended_recipe_detail": {
                 "first_template": "startup_probe",
                 "first_call": {"endpoint": "/api/v1/plugin/AgentResourceOfficer/assistant/startup", "method": "GET"},
@@ -817,6 +869,8 @@ def selftest_result():
     check("templates_summary_first_call", template_summary.get("first_template") == "startup_probe" and template_summary.get("first_method") == "GET")
     check("templates_summary_confirmation", template_summary.get("requires_confirmation") is True and template_summary.get("confirmation_message") == "需要确认")
     check("templates_summary_first_confirmation", template_summary.get("first_requires_confirmation") is False)
+    check("templates_summary_orchestration_contract", (template_summary.get("orchestration_contract") or {}).get("recommended_first_call") == "startup")
+    check("templates_summary_entry_patterns", bool(((template_summary.get("entry_patterns") or {}).get("mp_builtin_agent") or {}).get("route_with")))
 
     confirm_summary = {
         "requires_confirmation": True,
@@ -1014,6 +1068,10 @@ def selftest_result():
     check("external_agent_payload_has_next_command_rule", bool(external_agent.get("next_command_rule")))
     check("external_agent_payload_has_execution_policy_contract", bool((external_agent.get("execution_policy_contract") or {}).get("auto_continue")))
     check("external_agent_payload_has_execution_loop_contract", len(external_agent.get("execution_loop_contract") or []) >= 5)
+    check("external_agent_payload_has_orchestration_contract", bool((external_agent.get("orchestration_contract") or {}).get("recommended_route_call")))
+    check("external_agent_payload_has_feishu_entry_pattern", bool(((external_agent.get("entry_patterns") or {}).get("feishu_channel") or {}).get("route_with")))
+    check("external_agent_payload_has_orchestration_contract", (external_agent.get("orchestration_contract") or {}).get("recommended_route_call") == "route --summary-only")
+    check("external_agent_payload_has_entry_patterns", bool(((external_agent.get("entry_patterns") or {}).get("mp_builtin_agent") or {}).get("route_with")))
 
     catalog = commands_catalog()
     catalog_commands = catalog.get("commands") or []

@@ -1,5 +1,10 @@
 # agent-resource-officer changelog
 
+## 0.1.38
+
+- Added orchestration metadata to the helper and template summaries, including service/client roles, entry patterns, and the preferred startup -> decide -> route -> followup flow.
+- Clarified that external agents, MP built-in agents, and the Feishu channel all reuse the same assistant protocol instead of maintaining separate state machines.
+
 ## 0.1.35
 
 - Added `execution_loop_contract` to the external-agent payload so a new external agent can bootstrap itself from a structured startup -> decide -> route -> policy -> followup loop.

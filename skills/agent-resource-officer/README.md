@@ -1,8 +1,8 @@
 # agent-resource-officer
 
-公开版 AgentResourceOfficer Skill 模板，用来让外部智能体通过 MoviePilot 插件接口控制 115 云盘、夸克云盘等云盘资源工作流。
+公开版 AgentResourceOfficer Skill 模板，用来让外部智能体通过 MoviePilot 插件接口控制 115 云盘、夸克云盘等云盘资源工作流。插件是服务端执行层；Skill/helper 是客户端调度层。
 
-当前 helper 版本：`0.1.35`
+当前 helper 版本：`0.1.38`
 
 公开仓库：
 
@@ -121,6 +121,8 @@ python3 scripts/aro_request.py pick 1
 `commands` 会输出 helper 命令目录、是否联网、是否可能写入。`writes` 固定为布尔值，具体触发条件在 `write_condition`。
 
 `external-agent` 会输出可直接交给 WorkBuddy、Hermes、OpenClaw（小龙虾）、微信侧智能体或其他外部智能体的系统提示词和最小工具约定；`external-agent --full` 会输出完整接入说明。旧命令 `workbuddy` 仍保留为兼容别名。
+
+如果你对接的是 MP 内置智能体，优先读取 `request_templates` 和原生 Agent Tool，不要让模型自己拼底层影巢、盘搜、115、夸克接口。飞书入口同样复用 `route / pick / followup`，只是消息来源不同。
 
 如果外部智能体已经确定是 MP 原生 PT 搜索/下载/订阅任务，优先拉 `mp_pt` recipe；如果是热门推荐、豆瓣热映、Bangumi 番剧续接，优先拉 `recommend` recipe。
 

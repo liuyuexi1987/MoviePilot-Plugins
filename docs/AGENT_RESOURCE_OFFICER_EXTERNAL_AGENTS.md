@@ -1,6 +1,6 @@
 # 外部智能体接入 Agent影视助手
 
-目标：给 WorkBuddy、Hermes、OpenClaw（小龙虾）、微信侧智能体或其他外部智能体一套统一接入范式。外部智能体只做理解、调度和展示，115 云盘、夸克云盘等云盘资源搜索、解锁、转存、115 登录状态全部交给 `AgentResourceOfficer`。
+目标：给 WorkBuddy、Hermes、OpenClaw（小龙虾）、微信侧智能体或其他外部智能体一套统一接入范式。`Agent影视助手 / AgentResourceOfficer` 负责服务端能力执行；外部智能体只做客户端理解、调度和展示，115 云盘、夸克云盘等云盘资源搜索、解锁、转存、115 登录状态全部交给插件完成。
 
 公开仓库地址：
 
@@ -42,6 +42,18 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
 3. 用户发自然语言后，调 `route --summary-only`
 4. 读取 `recommended_agent_behavior`
 5. 如果执行过计划，再调 `followup --summary-only`
+
+三类入口都复用这一套 assistant 协议：
+
+- 外部智能体：优先用 Skill/helper，按 `startup -> decide -> route -> followup` 跑。
+- MP 内置智能体：优先用 Agent Tool / `request_templates`，不要让模型自己拼底层 API。
+- 飞书入口：把消息送进插件内置 Channel，底层仍然走 `route / pick / followup`。
+
+最低 token 接入时，优先读取 `assistant/request_templates` 返回里的：
+
+- `orchestration_contract`
+- `entry_patterns`
+- `recommended_recipe_detail`
 
 ## 必要配置
 
