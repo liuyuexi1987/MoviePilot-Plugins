@@ -450,6 +450,26 @@ def main() -> int:
                 ),
                 json.dumps(execution_followup, ensure_ascii=False)[:240],
             )
+            execution_followup_error_summary = execution_followup_data.get("error_summary") or {}
+            execution_followup_error_code = execution_followup_data.get("error_code")
+            execution_followup_compact_commands = execution_followup_error_summary.get("compact_commands") or []
+            assert_ok(
+                "action_execution_followup_without_plan_error_summary",
+                (
+                    isinstance(execution_followup_error_summary, dict)
+                    and bool(execution_followup_error_summary.get("decision_hint"))
+                    and (
+                        (
+                            execution_followup_error_code == "latest_plan_not_executed"
+                            and "执行计划" in execution_followup_compact_commands
+                        ) or (
+                            execution_followup_error_code == "executed_plan_not_found"
+                            and "最近" in execution_followup_compact_commands
+                        )
+                    )
+                ),
+                json.dumps(execution_followup_error_summary, ensure_ascii=False)[:240],
+            )
             download_task_actions = list(download_tasks_data.get("next_actions") or [])
             assert_ok(
                 "route_download_tasks_empty_next_actions",

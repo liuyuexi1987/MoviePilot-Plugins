@@ -14,7 +14,7 @@
 
 - `AIRecoginzerForwarder`: `2.0.1`
 - `AIRecognizerEnhancer`: `0.1.11`
-- `AgentResourceOfficer`: `0.2.60`
+- `AgentResourceOfficer`: `0.2.61`
 - `FeishuCommandBridgeLong`: `0.5.26`
 - `HdhiveOpenApi`: `0.3.0`
 - `HDHiveDailySign`: `1.0.0`
@@ -23,6 +23,7 @@
 
 ## 近期基础设施更新
 
+- `AgentResourceOfficer 0.2.61`：为 compact 失败回执增加统一 `error_summary`；外部智能体现在可以直接读取失败标签、建议说明，以及 `preferred_command` / `compact_commands` 这样的最短恢复命令。
 - `AgentResourceOfficer 0.2.60`：为 `score_summary.decision` 和 `followup_summary` 增加 `preferred_command`、`fallback_command` 与 `compact_commands`；`mp_recent_activity` 也补齐了 `followup_summary`，外部智能体可直接读取最短下一步命令。
 - `AgentResourceOfficer 0.2.59`：新增统一 `跟进` 入口；有已执行计划时自动追执行后状态，有片名时直接查生命周期，否则退回最近活动，外部智能体只保留一个短入口也能续接。
 - `AgentResourceOfficer 0.2.58`：压缩本地/PT 高跟踪入口；新增 `后续`、`状态`、`记录`、`入库`、`诊断`、`最近` 等短命令，并让推荐命令优先吐这套更省 token 的自然语言写法。

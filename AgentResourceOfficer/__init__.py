@@ -115,7 +115,7 @@ class AgentResourceOfficer(_PluginBase):
     plugin_name = "Agent影视助手"
     plugin_desc = "统一承接影巢、115、夸克、飞书与智能体入口的资源工作流主插件。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png"
-    plugin_version = "0.2.60"
+    plugin_version = "0.2.61"
     request_templates_schema_version = "request_templates.v1"
     plugin_author = "liuyuexi1987"
     author_url = "https://github.com/liuyuexi1987"
@@ -4986,6 +4986,143 @@ class AgentResourceOfficer(_PluginBase):
             return f"MP搜索 {target}".strip()
         return ""
 
+    def _assistant_template_command(
+        self,
+        template: Dict[str, Any],
+        *,
+        keyword: str = "",
+        hash_value: str = "",
+        target: str = "",
+    ) -> str:
+        if not isinstance(template, dict):
+            return ""
+        body = dict(template.get("action_body") or template.get("body") or {})
+        action_name = self._clean_text(body.get("name")) or self._clean_text(template.get("name"))
+        target_text = self._clean_text(target or body.get("keyword") or body.get("hash") or body.get("target"))
+        command = self._assistant_followup_command(
+            action_name,
+            keyword=self._clean_text(keyword or body.get("keyword") or target_text),
+            hash_value=self._clean_text(hash_value or body.get("hash")),
+        )
+        if command:
+            return command
+        if action_name == "query_mp_recent_activity":
+            return "最近"
+        if action_name == "execute_session_latest_plan":
+            return "执行计划"
+        if action_name == "mp_download_control":
+            control = self._clean_text(body.get("control"))
+            mapping = {
+                "pause": "暂停下载",
+                "resume": "恢复下载",
+                "delete": "删除下载",
+            }
+            prefix = mapping.get(control)
+            if prefix and target_text:
+                return f"{prefix} {target_text}"
+            return prefix or "下载任务"
+        if action_name == "mp_subscribe_control":
+            control = self._clean_text(body.get("control"))
+            mapping = {
+                "pause": "暂停订阅",
+                "resume": "恢复订阅",
+                "delete": "删除订阅",
+                "search": "搜索订阅",
+            }
+            prefix = mapping.get(control)
+            if prefix and target_text:
+                return f"{prefix} {target_text}"
+            return prefix or "订阅列表"
+        return ""
+
+    def _assistant_error_summary(
+        self,
+        *,
+        error_code: str,
+        recommended_action: str = "",
+        message_head: str = "",
+        next_actions: Optional[List[Any]] = None,
+        action_templates: Optional[List[Dict[str, Any]]] = None,
+        keyword: str = "",
+        hash_value: str = "",
+        target: str = "",
+    ) -> Dict[str, Any]:
+        code = self._clean_text(error_code)
+        if not code:
+            return {}
+        label_map = {
+            "latest_plan_not_executed": "当前会话还有待执行计划",
+            "plan_not_executed": "指定计划还没有执行",
+            "executed_plan_not_found": "当前没有可追踪的已执行计划",
+            "followup_not_available": "当前计划没有自动追踪动作",
+            "invalid_download_control_args": "下载任务参数不完整",
+            "download_target_not_found": "没有匹配到可操作的下载任务",
+            "invalid_subscribe_control_args": "订阅操作参数不完整",
+            "subscribe_target_not_found": "没有匹配到可操作的订阅",
+        }
+        hint_map = {
+            "latest_plan_not_executed": "先执行计划，再继续查看后续状态。",
+            "plan_not_executed": "先执行这条计划，再继续查看执行后追踪。",
+            "executed_plan_not_found": "先执行下载、订阅或转存计划，再查看后续。",
+            "followup_not_available": "当前计划只能改查状态、记录或最近活动。",
+            "invalid_download_control_args": "先发“下载任务”获取列表，再按编号暂停、恢复或删除。",
+            "download_target_not_found": "先发“下载任务”刷新列表，再按编号操作。",
+            "invalid_subscribe_control_args": "先发“订阅列表”获取列表，再按编号暂停、恢复或删除。",
+            "subscribe_target_not_found": "先发“订阅列表”刷新列表，再按编号操作。",
+        }
+        command_candidates: List[str] = []
+        fallback_map = {
+            "latest_plan_not_executed": ["执行计划", "后续"],
+            "plan_not_executed": ["执行计划", "后续"],
+            "executed_plan_not_found": ["最近"],
+            "followup_not_available": [f"状态 {target}".strip(), f"记录 {target}".strip(), "最近"],
+            "invalid_download_control_args": ["下载任务"],
+            "download_target_not_found": ["下载任务"],
+            "invalid_subscribe_control_args": ["订阅列表"],
+            "subscribe_target_not_found": ["订阅列表"],
+        }
+        for command in fallback_map.get(code, []):
+            command_text = self._clean_text(command)
+            if command_text and command_text not in command_candidates:
+                command_candidates.append(command_text)
+        synthetic_templates: List[Dict[str, Any]] = []
+        action_name = self._clean_text(recommended_action)
+        if action_name:
+            synthetic_templates.append({
+                "name": action_name,
+                "action_body": {
+                    "name": action_name,
+                    "keyword": keyword,
+                    "hash": hash_value,
+                    "target": target,
+                },
+            })
+        synthetic_templates.extend(
+            item for item in (action_templates or []) if isinstance(item, dict)
+        )
+        for item in synthetic_templates:
+            command = self._assistant_template_command(
+                item,
+                keyword=keyword,
+                hash_value=hash_value,
+                target=target,
+            )
+            if command and command not in command_candidates:
+                command_candidates.append(command)
+        for name in [self._clean_text(item) for item in (next_actions or []) if self._clean_text(item)]:
+            command = self._assistant_followup_command(name, keyword=keyword or target, hash_value=hash_value)
+            if command and command not in command_candidates:
+                command_candidates.append(command)
+        return {
+            "error_code": code,
+            "label": label_map.get(code, message_head or code),
+            "decision_hint": hint_map.get(code, message_head or "当前请求未完成，请先按建议补充上下文。"),
+            "preferred_command": command_candidates[0] if command_candidates else "",
+            "fallback_command": command_candidates[1] if len(command_candidates) > 1 else "",
+            "compact_commands": command_candidates[:2],
+            "recommended_commands": command_candidates[:3],
+        }
+
     def _assistant_followup_summary(
         self,
         *,
@@ -8211,6 +8348,18 @@ class AgentResourceOfficer(_PluginBase):
             "next_actions": data.get("next_actions") or session_state.get("suggested_actions") or [],
             "action_templates": data.get("action_templates") or [],
         }
+        error_summary = self._assistant_error_summary(
+            error_code=self._clean_text(data.get("error_code")),
+            recommended_action=self._clean_text(data.get("recommended_action")),
+            message_head=self._assistant_result_message_head(data.get("message") or data.get("message_head")),
+            next_actions=payload.get("next_actions"),
+            action_templates=payload.get("action_templates"),
+            keyword=self._clean_text(session_state.get("keyword")),
+            hash_value=self._clean_text(session_state.get("hash")),
+            target=self._clean_text(data.get("target")),
+        )
+        if error_summary:
+            payload["error_summary"] = error_summary
         if isinstance(data.get("preference_status"), dict):
             payload["preference_status"] = data.get("preference_status")
             payload["needs_onboarding"] = bool(data["preference_status"].get("needs_onboarding"))
@@ -8281,6 +8430,18 @@ class AgentResourceOfficer(_PluginBase):
                 limit=6,
             ),
         }
+        error_summary = self._assistant_error_summary(
+            error_code=payload.get("error_code"),
+            recommended_action=payload.get("recommended_action"),
+            message_head=payload.get("message_head"),
+            next_actions=payload.get("next_actions"),
+            action_templates=payload.get("action_templates"),
+            keyword=self._clean_text(session_state.get("keyword")),
+            hash_value=self._clean_text(session_state.get("hash")),
+            target=self._clean_text(data.get("target")),
+        )
+        if error_summary:
+            payload["error_summary"] = error_summary
         if isinstance(data.get("preference_status"), dict):
             payload["preference_status"] = data.get("preference_status")
             payload["needs_onboarding"] = bool(data["preference_status"].get("needs_onboarding"))
@@ -8320,6 +8481,18 @@ class AgentResourceOfficer(_PluginBase):
             "next_actions": data.get("next_actions") or session_state.get("suggested_actions") or [],
             "action_templates": data.get("action_templates") or [],
         }
+        error_summary = self._assistant_error_summary(
+            error_code=payload.get("error_code"),
+            recommended_action=self._clean_text(data.get("recommended_action")),
+            message_head=payload.get("message_head"),
+            next_actions=payload.get("next_actions"),
+            action_templates=payload.get("action_templates"),
+            keyword=self._clean_text(session_state.get("keyword")),
+            hash_value=self._clean_text(session_state.get("hash")),
+            target=self._clean_text(data.get("target")),
+        )
+        if error_summary:
+            payload["error_summary"] = error_summary
         for key in ["plan_id", "workflow", "plan_auto_selected", "has_session", "has_pending"]:
             if key in data:
                 payload[key] = data.get(key)
@@ -8370,6 +8543,18 @@ class AgentResourceOfficer(_PluginBase):
             "next_actions": data.get("next_actions") or session_state.get("suggested_actions") or [],
             "action_templates": data.get("action_templates") or [],
         }
+        error_summary = self._assistant_error_summary(
+            error_code=payload.get("error_code"),
+            recommended_action=self._clean_text(data.get("recommended_action")),
+            message_head=payload.get("message_head"),
+            next_actions=payload.get("next_actions"),
+            action_templates=payload.get("action_templates"),
+            keyword=self._clean_text(session_state.get("keyword")),
+            hash_value=self._clean_text(session_state.get("hash")),
+            target=self._clean_text(data.get("target") or session_state.get("keyword")),
+        )
+        if error_summary:
+            payload["error_summary"] = error_summary
         if isinstance(data.get("score_summary"), dict):
             payload["score_summary"] = data.get("score_summary")
         if isinstance(data.get("diagnosis_summary"), dict):
