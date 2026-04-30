@@ -393,7 +393,9 @@ def main() -> int:
         assert_ok(
             "route_scoring_policy_payload",
             isinstance(scoring_policy_data.get("scoring_policy"), dict)
-            and (scoring_policy_data.get("scoring_policy") or {}).get("schema_version") == "scoring_policy.v1",
+            and (scoring_policy_data.get("scoring_policy") or {}).get("schema_version") == "scoring_policy.v1"
+            and isinstance(((scoring_policy_data.get("scoring_policy") or {}).get("global_decision") or {}).get("default_confirm_score_threshold"), int)
+            and isinstance(((scoring_policy_data.get("scoring_policy") or {}).get("global_decision") or {}).get("default_auto_ingest_score_threshold"), int),
             json.dumps(scoring_policy_data.get("scoring_policy") or {}, ensure_ascii=False)[:240],
         )
 

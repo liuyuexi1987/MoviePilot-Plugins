@@ -115,7 +115,7 @@ class AgentResourceOfficer(_PluginBase):
     plugin_name = "Agent影视助手"
     plugin_desc = "统一承接影巢、115、夸克、飞书与智能体入口的资源工作流主插件。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png"
-    plugin_version = "0.2.54"
+    plugin_version = "0.2.55"
     request_templates_schema_version = "request_templates.v1"
     plugin_author = "liuyuexi1987"
     author_url = "https://github.com/liuyuexi1987"
@@ -150,6 +150,10 @@ class AgentResourceOfficer(_PluginBase):
     _p115_client_type = "alipaymini"
     _p115_cookie = ""
     _p115_prefer_direct = True
+    _assistant_default_pt_min_seeders = 3
+    _assistant_default_auto_ingest_enabled = False
+    _assistant_default_auto_ingest_score_threshold = 90
+    _assistant_default_confirm_score_threshold = 70
     _feishu_enabled = False
     _feishu_allow_all = False
     _feishu_reply_enabled = True
@@ -444,6 +448,10 @@ class AgentResourceOfficer(_PluginBase):
         self._p115_client_type = P115TransferService.normalize_qrcode_client_type(config.get("p115_client_type"))
         self._p115_cookie = self._clean_text(config.get("p115_cookie"))
         self._p115_prefer_direct = bool(config.get("p115_prefer_direct", True))
+        self._assistant_default_pt_min_seeders = max(0, self._safe_int(config.get("assistant_default_pt_min_seeders"), 3))
+        self._assistant_default_auto_ingest_enabled = bool(config.get("assistant_default_auto_ingest_enabled", False))
+        self._assistant_default_auto_ingest_score_threshold = max(1, min(100, self._safe_int(config.get("assistant_default_auto_ingest_score_threshold"), 90)))
+        self._assistant_default_confirm_score_threshold = max(1, min(100, self._safe_int(config.get("assistant_default_confirm_score_threshold"), 70)))
         self._feishu_enabled = bool(config.get("feishu_enabled", False))
         self._feishu_allow_all = bool(config.get("feishu_allow_all", False))
         self._feishu_reply_enabled = bool(config.get("feishu_reply_enabled", True))
@@ -904,6 +912,10 @@ class AgentResourceOfficer(_PluginBase):
             "p115_client_type": self._p115_client_type,
             "p115_cookie": self._p115_cookie,
             "p115_prefer_direct": self._p115_prefer_direct,
+            "assistant_default_pt_min_seeders": self._assistant_default_pt_min_seeders,
+            "assistant_default_auto_ingest_enabled": self._assistant_default_auto_ingest_enabled,
+            "assistant_default_auto_ingest_score_threshold": self._assistant_default_auto_ingest_score_threshold,
+            "assistant_default_confirm_score_threshold": self._assistant_default_confirm_score_threshold,
             "feishu_enabled": self._feishu_enabled,
             "feishu_allow_all": self._feishu_allow_all,
             "feishu_reply_enabled": self._feishu_reply_enabled,
@@ -1704,6 +1716,83 @@ class AgentResourceOfficer(_PluginBase):
                                         "props": {
                                             "model": "debug",
                                             "label": "调试模式",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "text": "下面这组是智能体默认评分策略，只影响还没有保存个人偏好的新会话。高分不代表一定执行；遇到影巢高积分、PT 低做种这类硬风险时，插件仍会拦截。",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "assistant_default_pt_min_seeders",
+                                            "label": "PT 最低做种数",
+                                            "type": "number",
+                                            "placeholder": "3",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "assistant_default_confirm_score_threshold",
+                                            "label": "建议确认分数线",
+                                            "type": "number",
+                                            "placeholder": "70",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "assistant_default_auto_ingest_score_threshold",
+                                            "label": "自动入库分数线",
+                                            "type": "number",
+                                            "placeholder": "90",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "assistant_default_auto_ingest_enabled",
+                                            "label": "默认允许高分自动入库",
                                         },
                                     }
                                 ],
@@ -2815,12 +2904,12 @@ class AgentResourceOfficer(_PluginBase):
             "quark_default_path": self._quark_default_path,
             "p115_default_path": self._p115_default_path,
             "pt_require_free": False,
-            "pt_min_seeders": 3,
+            "pt_min_seeders": self._assistant_default_pt_min_seeders,
             "pt_prefer_free": True,
             "hdhive_max_unlock_points": self._hdhive_max_unlock_points,
-            "auto_ingest_enabled": False,
-            "auto_ingest_score_threshold": 90,
-            "confirm_score_threshold": 70,
+            "auto_ingest_enabled": self._assistant_default_auto_ingest_enabled,
+            "auto_ingest_score_threshold": self._assistant_default_auto_ingest_score_threshold,
+            "confirm_score_threshold": self._assistant_default_confirm_score_threshold,
             "updated_at": 0,
         }
 
@@ -3590,6 +3679,7 @@ class AgentResourceOfficer(_PluginBase):
                     "hard_risk_reasons 为空",
                 ],
                 "confirm_range": "confirm_score_threshold <= score < auto_ingest_score_threshold 且无硬风险",
+                "default_source": "plugin_config_then_session_preferences",
                 "default_confirm_score_threshold": prefs.get("confirm_score_threshold"),
                 "default_auto_ingest_score_threshold": prefs.get("auto_ingest_score_threshold"),
                 "auto_ingest_default": prefs.get("auto_ingest_enabled"),
@@ -8296,6 +8386,7 @@ class AgentResourceOfficer(_PluginBase):
                 "auto_ingest": self._default_assistant_preferences().get("auto_ingest_enabled"),
                 "auto_ingest_enabled": self._default_assistant_preferences().get("auto_ingest_enabled"),
                 "auto_ingest_score_threshold": self._default_assistant_preferences().get("auto_ingest_score_threshold"),
+                "confirm_score_threshold": self._default_assistant_preferences().get("confirm_score_threshold"),
             },
             "smart_entry": {
                 "supports_text": True,
@@ -8633,6 +8724,10 @@ class AgentResourceOfficer(_PluginBase):
             f"- 夸克：{defaults.get('quark_path')}",
             f"- 115 客户端：{defaults.get('p115_client_type')}",
             f"影巢资源入口：{'开启' if defaults.get('hdhive_resource_enabled') else '关闭'}；单资源积分上限：{defaults.get('hdhive_max_unlock_points')} 分（0 表示不限制）",
+            "默认评分策略：",
+            f"- PT 最低做种数：{defaults.get('pt_min_seeders')}",
+            f"- 建议确认分数线：{defaults.get('confirm_score_threshold')}",
+            f"- 自动入库：{'开启' if defaults.get('auto_ingest_enabled') else '关闭'}；自动入库分数线：{defaults.get('auto_ingest_score_threshold')}",
             "启动聚合包：assistant/startup，一次返回 pulse、自检、核心工具、端点和恢复建议，适合外部智能体开场调用",
             "轻量启动探针：assistant/pulse，返回版本、关键服务状态与最佳恢复建议，适合外部智能体每次开场调用",
             "轻量工具清单：assistant/toolbox，返回推荐工具、端点、工作流和命令示例，适合外部智能体初始化系统提示",
