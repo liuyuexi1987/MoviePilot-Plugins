@@ -16,6 +16,8 @@ Personal MoviePilot plugin suite for agent-driven resource workflows, AI recogni
 
 - 开始发版或仓库维护前，先执行一次：
   - `bash scripts/repo-hygiene.sh`
+- 如果想一条命令跑完整发版前检查：
+  - `bash scripts/release-preflight.sh`
 - README 首页保持中文
 - GitHub 仓库描述使用简短英文
 - 当前对外文档优先以 `docs/INDEX.md` 为导航；不要把历史规划文档当成当前说明

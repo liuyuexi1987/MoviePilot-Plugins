@@ -2,6 +2,14 @@
 
 发布前按这个顺序执行，避免漏包、错包或上传旧 ZIP。
 
+如果你只想走一条完整命令，直接执行：
+
+```bash
+bash scripts/release-preflight.sh
+```
+
+它会先跑 `repo-hygiene.sh`，再跑 `pre-release-check.sh`。
+
 ## 1. 确认工作区
 
 ```bash
