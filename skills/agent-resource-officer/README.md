@@ -135,6 +135,14 @@ python3 scripts/aro_request.py pick 1
 
 执行计划后的回执，以及后续的 `execution_followup`、`smart_followup`、`mp_lifecycle_status`、`mp_ingest_status`、`mp_recent_activity`，现在会统一附带 `followup_summary`。外部智能体应优先读取 `preferred_command`、`fallback_command` 和 `compact_commands` 来决定“接下来查下载、查入库还是查诊断”，不要再靠不同 message 文案分支判断。
 
+从 `0.2.62` 开始，compact 主响应顶层也会直接给出统一的 `command_source`、`preferred_command`、`fallback_command`、`compact_commands`。优先级已经固定为：
+
+1. `error_summary`
+2. `followup_summary`
+3. `score_summary.decision`
+
+外部智能体如果只想要“下一条最短命令”，直接读取顶层字段即可，不必自己再判断嵌套结构来源。
+
 评分由插件内置规则执行。外部智能体如需解释规则，可读取 `scoring-policy` 或 `capabilities.scoring_policy`；不要在智能体侧重新打分，也不要绕过 `hard_risk_reasons`。
 
 `config-check` 只检查连接配置来源和是否存在，不输出真实 API Key。

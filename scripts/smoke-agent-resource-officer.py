@@ -470,6 +470,15 @@ def main() -> int:
                 ),
                 json.dumps(execution_followup_error_summary, ensure_ascii=False)[:240],
             )
+            assert_ok(
+                "action_execution_followup_without_plan_preferred_command",
+                (
+                    execution_followup_data.get("command_source") == "error_summary"
+                    and execution_followup_data.get("preferred_command") == execution_followup_error_summary.get("preferred_command")
+                    and isinstance(execution_followup_data.get("compact_commands"), list)
+                ),
+                json.dumps(execution_followup_data, ensure_ascii=False)[:240],
+            )
             download_task_actions = list(download_tasks_data.get("next_actions") or [])
             assert_ok(
                 "route_download_tasks_empty_next_actions",
@@ -561,6 +570,15 @@ def main() -> int:
                 bool((((mp_search_data.get("score_summary") or {}).get("decision") or {}).get("preferred_command")))
                 and isinstance((((mp_search_data.get("score_summary") or {}).get("decision") or {}).get("compact_commands")), list),
                 json.dumps((mp_search_data.get("score_summary") or {}).get("decision") or {}, ensure_ascii=False)[:240],
+            )
+            assert_ok(
+                "route_mp_search_top_level_compact_commands",
+                (
+                    mp_search_data.get("command_source") == "score_summary"
+                    and mp_search_data.get("preferred_command") == (((mp_search_data.get("score_summary") or {}).get("decision") or {}).get("preferred_command"))
+                    and isinstance(mp_search_data.get("compact_commands"), list)
+                ),
+                json.dumps(mp_search_data, ensure_ascii=False)[:240],
             )
 
             mp_best = route(base_url, api_key, sessions[1], "最佳片源")
@@ -803,6 +821,15 @@ def main() -> int:
                 bool(((smart_followup_idle_data.get("followup_summary") or {}).get("preferred_command")))
                 and isinstance(((smart_followup_idle_data.get("followup_summary") or {}).get("compact_commands")), list),
                 json.dumps(smart_followup_idle_data.get("followup_summary") or {}, ensure_ascii=False)[:240],
+            )
+            assert_ok(
+                "route_smart_followup_idle_top_level_compact_commands",
+                (
+                    smart_followup_idle_data.get("command_source") == "followup_summary"
+                    and smart_followup_idle_data.get("preferred_command") == ((smart_followup_idle_data.get("followup_summary") or {}).get("preferred_command"))
+                    and isinstance(smart_followup_idle_data.get("compact_commands"), list)
+                ),
+                json.dumps(smart_followup_idle_data, ensure_ascii=False)[:240],
             )
 
             movie_recommend = route(base_url, api_key, sessions[5], "热门电影")

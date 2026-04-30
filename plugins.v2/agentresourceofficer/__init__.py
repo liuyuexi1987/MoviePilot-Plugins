@@ -115,7 +115,7 @@ class AgentResourceOfficer(_PluginBase):
     plugin_name = "Agent影视助手"
     plugin_desc = "统一承接影巢、115、夸克、飞书与智能体入口的资源工作流主插件。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png"
-    plugin_version = "0.2.61"
+    plugin_version = "0.2.62"
     request_templates_schema_version = "request_templates.v1"
     plugin_author = "liuyuexi1987"
     author_url = "https://github.com/liuyuexi1987"
@@ -8371,7 +8371,38 @@ class AgentResourceOfficer(_PluginBase):
             payload["diagnosis_summary"] = data.get("diagnosis_summary")
         if isinstance(data.get("followup_summary"), dict):
             payload["followup_summary"] = data.get("followup_summary")
+        command_summary = self._assistant_compact_command_summary(payload)
+        if command_summary:
+            payload.update(command_summary)
         return payload
+
+    @staticmethod
+    def _assistant_compact_command_summary(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        data = dict(payload or {})
+        score_summary = data.get("score_summary") if isinstance(data.get("score_summary"), dict) else {}
+        candidates = [
+            ("error_summary", data.get("error_summary") if isinstance(data.get("error_summary"), dict) else {}),
+            ("followup_summary", data.get("followup_summary") if isinstance(data.get("followup_summary"), dict) else {}),
+            ("score_summary", score_summary.get("decision") if isinstance(score_summary.get("decision"), dict) else {}),
+        ]
+        for source, summary in candidates:
+            if not isinstance(summary, dict) or not summary:
+                continue
+            compact_commands = [
+                AgentResourceOfficer._clean_text(item)
+                for item in (summary.get("compact_commands") or summary.get("recommended_commands") or [])
+                if AgentResourceOfficer._clean_text(item)
+            ]
+            preferred_command = AgentResourceOfficer._clean_text(summary.get("preferred_command"))
+            fallback_command = AgentResourceOfficer._clean_text(summary.get("fallback_command"))
+            if preferred_command or compact_commands:
+                return {
+                    "command_source": source,
+                    "preferred_command": preferred_command or (compact_commands[0] if compact_commands else ""),
+                    "fallback_command": fallback_command or (compact_commands[1] if len(compact_commands) > 1 else ""),
+                    "compact_commands": compact_commands[:2],
+                }
+        return {}
 
     def _assistant_plan_execute_compact_response(self, result: Dict[str, Any]) -> Dict[str, Any]:
         response = dict(result or {})
@@ -8455,6 +8486,9 @@ class AgentResourceOfficer(_PluginBase):
             payload["followup_summary"] = data.get("followup_summary")
         if isinstance(data.get("recovery"), dict):
             payload["recovery"] = data.get("recovery")
+        command_summary = self._assistant_compact_command_summary(payload)
+        if command_summary:
+            payload.update(command_summary)
         return {
             "success": bool(response.get("success")),
             "message": response.get("message") or "",
@@ -8516,6 +8550,9 @@ class AgentResourceOfficer(_PluginBase):
         pending_p115 = session_state.get("pending_p115") if isinstance(session_state.get("pending_p115"), dict) else {}
         if pending_p115:
             payload["has_pending_p115"] = bool(pending_p115.get("has_pending"))
+        command_summary = self._assistant_compact_command_summary(payload)
+        if command_summary:
+            payload.update(command_summary)
         return {
             "success": bool(response.get("success")),
             "message": response.get("message") or "",
@@ -8578,6 +8615,9 @@ class AgentResourceOfficer(_PluginBase):
         pending_p115 = session_state.get("pending_p115") if isinstance(session_state.get("pending_p115"), dict) else {}
         if pending_p115:
             payload["has_pending_p115"] = bool(pending_p115.get("has_pending"))
+        command_summary = self._assistant_compact_command_summary(payload)
+        if command_summary:
+            payload.update(command_summary)
         return {
             "success": bool(response.get("success")),
             "message": response.get("message") or "",
