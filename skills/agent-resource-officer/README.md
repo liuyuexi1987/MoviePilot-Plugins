@@ -133,6 +133,8 @@ python3 scripts/aro_request.py pick 1
 
 `score_summary.decision` 是优先读取的下一步建议层，里面会给出 `label`、`decision_hint` 和 `recommended_commands`。外部智能体应直接复用这组命令提示，不要自己再拼另一套确认话术。
 
+执行计划后的回执，以及后续的 `execution_followup`、`mp_lifecycle_status`、`mp_ingest_status`，现在会统一附带 `followup_summary`。外部智能体应优先读取它来决定“接下来查下载、查入库还是查诊断”，不要再靠不同 message 文案分支判断。
+
 评分由插件内置规则执行。外部智能体如需解释规则，可读取 `scoring-policy` 或 `capabilities.scoring_policy`；不要在智能体侧重新打分，也不要绕过 `hard_risk_reasons`。
 
 `config-check` 只检查连接配置来源和是否存在，不输出真实 API Key。

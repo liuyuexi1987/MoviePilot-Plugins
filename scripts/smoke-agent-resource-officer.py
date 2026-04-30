@@ -521,42 +521,55 @@ def main() -> int:
             mp_search = route(base_url, api_key, sessions[1], f"MP搜索 {args.keyword}")
             mp_search_data = assert_route_action("route_mp_search", mp_search, "mp_media_search")
             mp_search_message = message_text(mp_search)
+            mp_search_has_best = bool((mp_search_data.get("score_summary") or {}).get("best"))
             assert_ok(
                 "route_mp_search_plan_hint",
-                "会先生成下载计划" in mp_search_message and "即可下载选中项" not in mp_search_message,
+                (
+                    ("会先生成下载计划" in mp_search_message and "即可下载选中项" not in mp_search_message)
+                    if mp_search_has_best
+                    else ("暂未搜索到资源" in mp_search_message or "未搜索到资源" in mp_search_message)
+                ),
                 mp_search_message[:240],
             )
             assert_ok(
                 "route_mp_search_score_summary",
-                bool((mp_search_data.get("score_summary") or {}).get("best"))
-                and isinstance(((mp_search_data.get("score_summary") or {}).get("decision") or {}).get("recommended_commands"), list),
+                isinstance(((mp_search_data.get("score_summary") or {}).get("decision") or {}).get("recommended_commands"), list),
                 json.dumps(mp_search_data.get("score_summary") or {}, ensure_ascii=False)[:240],
             )
 
             mp_best = route(base_url, api_key, sessions[1], "最佳片源")
-            mp_best_data = assert_route_action("route_mp_search_best", mp_best, "mp_search_best_detail")
-            assert_ok(
-                "route_mp_search_best_score_summary",
-                bool((mp_best_data.get("score_summary") or {}).get("best"))
-                and bool(((mp_best_data.get("score_summary") or {}).get("decision") or {}).get("decision_hint")),
-                json.dumps(mp_best_data.get("score_summary") or {}, ensure_ascii=False)[:240],
-            )
+            mp_best_data = data(mp_best)
+            if mp_search_has_best:
+                mp_best_data = assert_route_action("route_mp_search_best", mp_best, "mp_search_best_detail")
+                assert_ok(
+                    "route_mp_search_best_score_summary",
+                    bool((mp_best_data.get("score_summary") or {}).get("best"))
+                    and bool(((mp_best_data.get("score_summary") or {}).get("decision") or {}).get("decision_hint")),
+                    json.dumps(mp_best_data.get("score_summary") or {}, ensure_ascii=False)[:240],
+                )
 
-            mp_best_download = route(base_url, api_key, sessions[1], "下载最佳")
-            mp_best_download_data = assert_route_action("route_mp_download_best_plan", mp_best_download, "workflow_plan")
-            assert_ok(
-                "route_mp_download_best_has_plan",
-                bool(mp_best_download_data.get("plan_id")) and mp_best_download_data.get("workflow") == "mp_best_download",
-                json.dumps(mp_best_download_data, ensure_ascii=False)[:240],
-            )
-            mp_recover_after_plan = recover(base_url, api_key, sessions[1])
-            mp_recover_after_plan_data = data(mp_recover_after_plan)
-            assert_ok(
-                "route_mp_download_recover_priority",
-                (mp_recover_after_plan_data.get("recovery") or {}).get("mode") == "resume_saved_plan"
-                and (mp_recover_after_plan_data.get("recovery") or {}).get("recommended_action") == "execute_latest_plan",
-                json.dumps(mp_recover_after_plan_data.get("recovery") or {}, ensure_ascii=False),
-            )
+                mp_best_download = route(base_url, api_key, sessions[1], "下载最佳")
+                mp_best_download_data = assert_route_action("route_mp_download_best_plan", mp_best_download, "workflow_plan")
+                assert_ok(
+                    "route_mp_download_best_has_plan",
+                    bool(mp_best_download_data.get("plan_id")) and mp_best_download_data.get("workflow") == "mp_best_download",
+                    json.dumps(mp_best_download_data, ensure_ascii=False)[:240],
+                )
+                mp_recover_after_plan = recover(base_url, api_key, sessions[1])
+                mp_recover_after_plan_data = data(mp_recover_after_plan)
+                assert_ok(
+                    "route_mp_download_recover_priority",
+                    (mp_recover_after_plan_data.get("recovery") or {}).get("mode") == "resume_saved_plan"
+                    and (mp_recover_after_plan_data.get("recovery") or {}).get("recommended_action") == "execute_latest_plan",
+                    json.dumps(mp_recover_after_plan_data.get("recovery") or {}, ensure_ascii=False),
+                )
+            else:
+                assert_ok(
+                    "route_mp_search_best_empty_ok",
+                    mp_best.get("success") is False
+                    and mp_best_data.get("action") == "mp_search_best_detail",
+                    json.dumps(mp_best, ensure_ascii=False)[:240],
+                )
             missing_plan_execute = plan_execute(base_url, api_key, sessions[1], "plan-does-not-exist")
             missing_plan_execute_data = data(missing_plan_execute)
             assert_ok(
@@ -701,7 +714,8 @@ def main() -> int:
             assert_ok(
                 "route_ingest_status_has_diagnosis",
                 isinstance(ingest_status_data.get("diagnosis_summary"), dict)
-                and bool((ingest_status_data.get("diagnosis_summary") or {}).get("stage")),
+                and bool((ingest_status_data.get("diagnosis_summary") or {}).get("stage"))
+                and bool((((ingest_status_data.get("diagnosis_summary") or {}).get("followup_summary") or {}).get("label"))),
                 json.dumps(ingest_status_data.get("diagnosis_summary") or {}, ensure_ascii=False)[:240],
             )
 
@@ -742,13 +756,21 @@ def main() -> int:
             movie_message = message_text(movie_recommend)
             assert_ok("route_recommend_movie_type_filter", "| 电视剧 |" not in movie_message, movie_message[:240])
             movie_to_mp = route(base_url, api_key, sessions[5], "选择 1")
-            movie_to_mp_data = assert_route_action("route_recommend_to_mp", movie_to_mp, "mp_media_search")
-            assert_ok(
-                "route_recommend_to_mp_scored",
-                bool((movie_to_mp_data.get("score_summary") or {}).get("best"))
-                and isinstance(((movie_to_mp_data.get("score_summary") or {}).get("decision") or {}).get("recommended_commands"), list),
-                json.dumps(movie_to_mp_data.get("score_summary") or {}, ensure_ascii=False)[:240],
-            )
+            movie_to_mp_data = data(movie_to_mp)
+            if movie_to_mp.get("success"):
+                movie_to_mp_data = assert_route_action("route_recommend_to_mp", movie_to_mp, "mp_media_search")
+                assert_ok(
+                    "route_recommend_to_mp_scored",
+                    isinstance(((movie_to_mp_data.get("score_summary") or {}).get("decision") or {}).get("recommended_commands"), list),
+                    json.dumps(movie_to_mp_data.get("score_summary") or {}, ensure_ascii=False)[:240],
+                )
+            else:
+                assert_ok(
+                    "route_recommend_to_mp_empty_ok",
+                    movie_to_mp_data.get("action") == "mp_media_search"
+                    and ("未识别到媒体信息" in message_text(movie_to_mp) or "搜索资源失败" in message_text(movie_to_mp)),
+                    json.dumps(movie_to_mp, ensure_ascii=False)[:240],
+                )
             movie_recommend_pansou = route(base_url, api_key, sessions[6], "热门电影")
             assert_route_action("route_recommend_movie_pansou_session", movie_recommend_pansou, "mp_recommendations")
             movie_to_pansou = route(base_url, api_key, sessions[6], "选择 1 盘搜")

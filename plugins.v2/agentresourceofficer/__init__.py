@@ -115,7 +115,7 @@ class AgentResourceOfficer(_PluginBase):
     plugin_name = "Agent影视助手"
     plugin_desc = "统一承接影巢、115、夸克、飞书与智能体入口的资源工作流主插件。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png"
-    plugin_version = "0.2.56"
+    plugin_version = "0.2.57"
     request_templates_schema_version = "request_templates.v1"
     plugin_author = "liuyuexi1987"
     author_url = "https://github.com/liuyuexi1987"
@@ -4954,6 +4954,81 @@ class AgentResourceOfficer(_PluginBase):
         ]
         return action_order[:4], templates
 
+    def _assistant_followup_command(self, action_name: str, *, keyword: str = "", hash_value: str = "") -> str:
+        target = self._clean_text(keyword or hash_value)
+        mapping = {
+            "query_mp_download_tasks": "下载任务",
+            "query_mp_subscribes": "订阅列表",
+        }
+        if action_name in mapping:
+            return mapping[action_name]
+        if action_name == "query_mp_ingest_status":
+            return f"入库状态 {target}".strip()
+        if action_name == "query_mp_lifecycle_status":
+            return f"追踪 {target}".strip()
+        if action_name == "query_mp_download_history":
+            return f"下载历史 {target}".strip()
+        if action_name == "query_mp_transfer_history":
+            return f"入库历史 {target}".strip()
+        if action_name == "query_mp_local_diagnose":
+            return f"本地诊断 {target}".strip()
+        if action_name == "start_mp_media_search":
+            return f"MP搜索 {target}".strip()
+        return ""
+
+    def _assistant_followup_summary(
+        self,
+        *,
+        category: str,
+        stage: str,
+        recommended_action: str,
+        follow_up_hint: str,
+        next_actions: Optional[List[str]] = None,
+        action_templates: Optional[List[Dict[str, Any]]] = None,
+        keyword: str = "",
+        hash_value: str = "",
+    ) -> Dict[str, Any]:
+        action_names = [self._clean_text(item) for item in (next_actions or []) if self._clean_text(item)]
+        command_candidates: List[str] = []
+        for name in action_names:
+            command = self._assistant_followup_command(name, keyword=keyword, hash_value=hash_value)
+            if command and command not in command_candidates:
+                command_candidates.append(command)
+        label_map = {
+            "mp_download": "下载后追踪",
+            "mp_subscribe": "订阅后追踪",
+            "cloud_write": "云盘落库追踪",
+            "mp_diagnosis": "本地/PT 状态追踪",
+        }
+        return {
+            "category": category,
+            "stage": self._clean_text(stage),
+            "label": label_map.get(category, category or "后续追踪"),
+            "preferred_action": self._clean_text(recommended_action),
+            "decision_hint": self._clean_text(follow_up_hint),
+            "recommended_commands": command_candidates[:3],
+            "next_actions": action_names[:4],
+            "action_templates_count": len([item for item in (action_templates or []) if isinstance(item, dict)]),
+        }
+
+    @staticmethod
+    def _format_followup_summary_lines(summary: Optional[Dict[str, Any]]) -> List[str]:
+        data = dict(summary or {})
+        if not data:
+            return []
+        lines: List[str] = []
+        label = AgentResourceOfficer._clean_text(data.get("label"))
+        stage = AgentResourceOfficer._clean_text(data.get("stage"))
+        hint = AgentResourceOfficer._clean_text(data.get("decision_hint"))
+        commands = [AgentResourceOfficer._clean_text(item) for item in (data.get("recommended_commands") or []) if AgentResourceOfficer._clean_text(item)]
+        if label:
+            lines.append(f"后续追踪：{label}{f' | {stage}' if stage else ''}")
+        if hint:
+            lines.append(f"建议：{hint}")
+        if commands:
+            lines.append("可直接继续：" + " / ".join(commands))
+        return lines
+
     def _assistant_mp_recent_activity_summary(
         self,
         *,
@@ -5029,6 +5104,17 @@ class AgentResourceOfficer(_PluginBase):
             hash_value=hash_value,
             preferred=self._clean_text(diagnosis_summary.get("recommended_action")) or "query_mp_download_history",
         )
+        followup_summary = self._assistant_followup_summary(
+            category="mp_diagnosis",
+            stage=self._clean_text(diagnosis_summary.get("stage")),
+            recommended_action=self._clean_text(diagnosis_summary.get("recommended_action")),
+            follow_up_hint=self._clean_text(diagnosis_summary.get("follow_up_hint")),
+            next_actions=next_actions,
+            action_templates=action_templates,
+            keyword=title,
+            hash_value=hash_value,
+        )
+        diagnosis_summary["followup_summary"] = followup_summary
         lines = [f"MP 生命周期追踪：{keyword}"]
         lines.append(
             f"结论：{diagnosis_summary.get('stage') or 'unknown'} | "
@@ -5049,6 +5135,7 @@ class AgentResourceOfficer(_PluginBase):
                 lines.append(f"{item.get('index')}. {item.get('title')} ({item.get('year') or '-'}) | {item.get('status_text') or '-'} | {item.get('date') or '-'}")
         if not task_items and not download_items and not transfer_items:
             lines.append("未找到相关任务、下载历史或整理历史。")
+        lines.extend(self._format_followup_summary_lines(followup_summary))
         lines.append("说明：这是只读聚合查询，用于判断资源处于搜索后、下载中、已下载还是已落库阶段。")
         self._save_session(cache_key, {
             "kind": "assistant_mp_lifecycle_status",
@@ -5087,6 +5174,7 @@ class AgentResourceOfficer(_PluginBase):
                     "items": transfer_items,
                 },
                 "diagnosis_summary": diagnosis_summary,
+                "followup_summary": followup_summary,
                 "recommended_action": diagnosis_summary.get("recommended_action"),
                 "follow_up_hint": diagnosis_summary.get("follow_up_hint"),
                 "next_actions": next_actions,
@@ -5125,8 +5213,7 @@ class AgentResourceOfficer(_PluginBase):
             lines.append("风险：")
             for item in (diagnosis_summary.get("risk_reasons") or [])[:5]:
                 lines.append(f"- {item}")
-        if diagnosis_summary.get("follow_up_hint"):
-            lines.append(f"建议：{diagnosis_summary.get('follow_up_hint')}")
+        lines.extend(self._format_followup_summary_lines(diagnosis_summary.get("followup_summary")))
         lifecycle_data["action"] = "mp_ingest_status"
         return {
             "success": bool(lifecycle.get("success")),
@@ -7827,11 +7914,26 @@ class AgentResourceOfficer(_PluginBase):
                 ),
             ]
 
+        category = "cloud_write"
+        if workflow_name in {"mp_best_download", "mp_download", "mp_search_download", "mp_download_control"}:
+            category = "mp_download"
+        elif workflow_name in {"mp_subscribe", "mp_subscribe_and_search", "mp_subscribe_control"}:
+            category = "mp_subscribe"
+        followup_summary = self._assistant_followup_summary(
+            category=category,
+            stage=self._clean_text(workflow_name),
+            recommended_action=next_actions[0] if next_actions else "",
+            follow_up_hint=follow_up_hint,
+            next_actions=next_actions,
+            action_templates=templates,
+            keyword=keyword,
+        )
         return {
             "next_actions": next_actions,
             "action_templates": templates,
             "recommended_action": next_actions[0] if next_actions else "",
             "follow_up_hint": follow_up_hint,
+            "followup_summary": followup_summary,
         }
 
     async def _assistant_execution_followup(
@@ -7922,11 +8024,13 @@ class AgentResourceOfficer(_PluginBase):
             "recommended_action": self._clean_text(followup.get("recommended_action")),
             "follow_up_hint": self._clean_text(followup.get("follow_up_hint")),
             "resolved_followup_action": resolved_name,
+            "followup_summary": followup.get("followup_summary") or {},
         })
         message_lines = [
             f"已执行后续追踪：{resolved_name}",
             self._clean_text(result.get("message")),
         ]
+        message_lines.extend(self._format_followup_summary_lines(followup.get("followup_summary")))
         return {
             "success": bool(result.get("success")),
             "message": "\n".join(line for line in message_lines if line).strip(),
@@ -7961,6 +8065,8 @@ class AgentResourceOfficer(_PluginBase):
             payload["score_summary"] = data.get("score_summary")
         if isinstance(data.get("diagnosis_summary"), dict):
             payload["diagnosis_summary"] = data.get("diagnosis_summary")
+        if isinstance(data.get("followup_summary"), dict):
+            payload["followup_summary"] = data.get("followup_summary")
         return payload
 
     def _assistant_plan_execute_compact_response(self, result: Dict[str, Any]) -> Dict[str, Any]:
@@ -8029,6 +8135,8 @@ class AgentResourceOfficer(_PluginBase):
             payload["score_summary"] = data.get("score_summary")
         if isinstance(data.get("diagnosis_summary"), dict):
             payload["diagnosis_summary"] = data.get("diagnosis_summary")
+        if isinstance(data.get("followup_summary"), dict):
+            payload["followup_summary"] = data.get("followup_summary")
         if isinstance(data.get("recovery"), dict):
             payload["recovery"] = data.get("recovery")
         return {
@@ -8069,6 +8177,8 @@ class AgentResourceOfficer(_PluginBase):
             payload["score_summary"] = data.get("score_summary")
         if isinstance(data.get("diagnosis_summary"), dict):
             payload["diagnosis_summary"] = data.get("diagnosis_summary")
+        if isinstance(data.get("followup_summary"), dict):
+            payload["followup_summary"] = data.get("followup_summary")
         for key in ["download_tasks", "download_history", "transfer_history"]:
             if isinstance(data.get(key), dict):
                 payload[key] = data.get(key)
@@ -8109,6 +8219,8 @@ class AgentResourceOfficer(_PluginBase):
             payload["score_summary"] = data.get("score_summary")
         if isinstance(data.get("diagnosis_summary"), dict):
             payload["diagnosis_summary"] = data.get("diagnosis_summary")
+        if isinstance(data.get("followup_summary"), dict):
+            payload["followup_summary"] = data.get("followup_summary")
         if isinstance(data.get("scoring_policy"), dict):
             payload["scoring_policy"] = data.get("scoring_policy")
         for key in ["download_tasks", "download_history", "transfer_history"]:
@@ -10686,14 +10798,17 @@ class AgentResourceOfficer(_PluginBase):
             == ["query_execution_followup", "query_mp_ingest_status", "query_mp_download_history", "query_mp_lifecycle_status", "query_mp_local_diagnose"]
             and (execute_plan_followup_samples.get("mp_best_download") or {}).get("recommended_action") == "query_execution_followup"
             and bool(self._clean_text((execute_plan_followup_samples.get("mp_best_download") or {}).get("follow_up_hint")))
+            and bool(self._clean_text(((execute_plan_followup_samples.get("mp_best_download") or {}).get("followup_summary") or {}).get("label")))
             and [item.get("name") for item in (execute_plan_followup_samples.get("mp_subscribe") or {}).get("action_templates") or []]
             == ["query_execution_followup", "query_mp_subscribes", "query_mp_ingest_status", "start_mp_media_search"]
             and (execute_plan_followup_samples.get("mp_subscribe") or {}).get("recommended_action") == "query_execution_followup"
             and bool(self._clean_text((execute_plan_followup_samples.get("mp_subscribe") or {}).get("follow_up_hint")))
+            and bool(self._clean_text(((execute_plan_followup_samples.get("mp_subscribe") or {}).get("followup_summary") or {}).get("label")))
             and [item.get("name") for item in (execute_plan_followup_samples.get("hdhive_unlock_selected") or {}).get("action_templates") or []]
             == ["query_execution_followup", "query_mp_transfer_history", "query_mp_local_diagnose"]
             and (execute_plan_followup_samples.get("hdhive_unlock_selected") or {}).get("recommended_action") == "query_execution_followup"
             and bool(self._clean_text((execute_plan_followup_samples.get("hdhive_unlock_selected") or {}).get("follow_up_hint")))
+            and bool(self._clean_text(((execute_plan_followup_samples.get("hdhive_unlock_selected") or {}).get("followup_summary") or {}).get("label")))
         )
         checks = {
             "compact_templates": compact_templates_ok,
@@ -15410,6 +15525,7 @@ class AgentResourceOfficer(_PluginBase):
         )
         data["recommended_action"] = self._clean_text(data.get("recommended_action")) or self._clean_text(followup.get("recommended_action"))
         data["follow_up_hint"] = self._clean_text(data.get("follow_up_hint")) or self._clean_text(followup.get("follow_up_hint"))
+        data["followup_summary"] = followup.get("followup_summary") or {}
         data["next_actions"] = self._assistant_compact_next_actions(
             followup.get("next_actions"),
             data.get("next_actions") or [],
@@ -15431,6 +15547,7 @@ class AgentResourceOfficer(_PluginBase):
             message_lines.append(f"推荐动作：{data.get('recommended_action')}")
         if data.get("follow_up_hint"):
             message_lines.append(f"下一步：{data.get('follow_up_hint')}")
+        message_lines.extend(self._format_followup_summary_lines(data.get("followup_summary")))
         result = {
             "success": bool(action_result.get("success")),
             "message": "\n".join(line for line in message_lines if line).strip(),

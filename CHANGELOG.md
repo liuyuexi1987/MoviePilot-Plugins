@@ -14,7 +14,7 @@
 
 - `AIRecoginzerForwarder`: `2.0.1`
 - `AIRecognizerEnhancer`: `0.1.11`
-- `AgentResourceOfficer`: `0.2.56`
+- `AgentResourceOfficer`: `0.2.57`
 - `FeishuCommandBridgeLong`: `0.5.26`
 - `HdhiveOpenApi`: `0.3.0`
 - `HDHiveDailySign`: `1.0.0`
@@ -23,6 +23,7 @@
 
 ## 近期基础设施更新
 
+- `AgentResourceOfficer 0.2.57`：把写入动作后的追踪提示下沉为统一 `followup_summary`；执行计划、统一后续追踪和本地/PT 诊断现在都会返回稳定的后续标签、建议说明和推荐命令。
 - `AgentResourceOfficer 0.2.56`：把评分后的确认提示下沉为统一 `decision` 摘要；`score_summary` 现在会稳定返回决策标签、建议说明和推荐命令，飞书、外部智能体和 MP 内置入口可以共用同一套下一步提示。
 - `AgentResourceOfficer 0.2.55`：新增插件级智能体默认评分策略设置；可统一配置 `PT 最低做种数`、`建议确认分数线`、`自动入库分数线` 与 `默认自动化开关`，新会话默认偏好与 `scoring_policy` 公开数据现在统一读取这些值。
 - `AgentResourceOfficer 0.2.54`：新增 `preferences_onboarding` 模板组、`评分策略` 自然语言只读入口与 helper 命令；补齐偏好/评分 smoke 覆盖，并修正能力摘要里的 `auto_ingest` 默认值。
