@@ -536,6 +536,12 @@ def main() -> int:
                 isinstance(((mp_search_data.get("score_summary") or {}).get("decision") or {}).get("recommended_commands"), list),
                 json.dumps(mp_search_data.get("score_summary") or {}, ensure_ascii=False)[:240],
             )
+            assert_ok(
+                "route_mp_search_score_summary_compact_commands",
+                bool((((mp_search_data.get("score_summary") or {}).get("decision") or {}).get("preferred_command")))
+                and isinstance((((mp_search_data.get("score_summary") or {}).get("decision") or {}).get("compact_commands")), list),
+                json.dumps((mp_search_data.get("score_summary") or {}).get("decision") or {}, ensure_ascii=False)[:240],
+            )
 
             mp_best = route(base_url, api_key, sessions[1], "最佳片源")
             mp_best_data = data(mp_best)
@@ -716,6 +722,12 @@ def main() -> int:
                 smart_followup_keyword_data.get("resolved_followup_action") == "mp_lifecycle_status",
                 json.dumps(smart_followup_keyword_data, ensure_ascii=False)[:240],
             )
+            assert_ok(
+                "route_smart_followup_keyword_compact_commands",
+                bool(((smart_followup_keyword_data.get("followup_summary") or {}).get("preferred_command")))
+                and isinstance(((smart_followup_keyword_data.get("followup_summary") or {}).get("compact_commands")), list),
+                json.dumps(smart_followup_keyword_data.get("followup_summary") or {}, ensure_ascii=False)[:240],
+            )
 
             ingest_status = route(base_url, api_key, sessions[4], f"入库{args.keyword}")
             ingest_status_data = assert_route_action("route_ingest_status_compact", ingest_status, "mp_ingest_status")
@@ -765,6 +777,12 @@ def main() -> int:
                 "route_smart_followup_idle_recent_activity",
                 smart_followup_idle_data.get("resolved_followup_action") == "mp_recent_activity",
                 json.dumps(smart_followup_idle_data, ensure_ascii=False)[:240],
+            )
+            assert_ok(
+                "route_smart_followup_idle_compact_commands",
+                bool(((smart_followup_idle_data.get("followup_summary") or {}).get("preferred_command")))
+                and isinstance(((smart_followup_idle_data.get("followup_summary") or {}).get("compact_commands")), list),
+                json.dumps(smart_followup_idle_data.get("followup_summary") or {}, ensure_ascii=False)[:240],
             )
 
             movie_recommend = route(base_url, api_key, sessions[5], "热门电影")

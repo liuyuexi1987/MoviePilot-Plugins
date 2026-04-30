@@ -115,7 +115,7 @@ class AgentResourceOfficer(_PluginBase):
     plugin_name = "Agent影视助手"
     plugin_desc = "统一承接影巢、115、夸克、飞书与智能体入口的资源工作流主插件。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png"
-    plugin_version = "0.2.59"
+    plugin_version = "0.2.60"
     request_templates_schema_version = "request_templates.v1"
     plugin_author = "liuyuexi1987"
     author_url = "https://github.com/liuyuexi1987"
@@ -3628,6 +3628,9 @@ class AgentResourceOfficer(_PluginBase):
                 "requires_confirmation": False,
                 "prefer_plan_first": True,
                 "decision_hint": "当前没有可评分条目，先完成搜索或选择后再判断。",
+                "preferred_command": "",
+                "fallback_command": "",
+                "compact_commands": [],
                 "recommended_commands": [],
             }
         choice = self._safe_int(best.get("index"), 0)
@@ -3662,6 +3665,9 @@ class AgentResourceOfficer(_PluginBase):
             "score": self._safe_int(best.get("score"), 0),
             "requires_confirmation": not bool(best.get("can_auto_execute")),
             "prefer_plan_first": True,
+            "preferred_command": commands[0] if commands else "",
+            "fallback_command": commands[1] if len(commands) > 1 else "",
+            "compact_commands": commands[:2],
             "recommended_commands": commands,
             "decision_hint": hint,
             "top_hard_risk": hard_risks[0] if hard_risks else "",
@@ -3677,7 +3683,7 @@ class AgentResourceOfficer(_PluginBase):
         lines: List[str] = []
         label = AgentResourceOfficer._clean_text(decision.get("label"))
         hint = AgentResourceOfficer._clean_text(decision.get("decision_hint"))
-        commands = [AgentResourceOfficer._clean_text(item) for item in (decision.get("recommended_commands") or []) if AgentResourceOfficer._clean_text(item)]
+        commands = [AgentResourceOfficer._clean_text(item) for item in (decision.get("compact_commands") or decision.get("recommended_commands") or []) if AgentResourceOfficer._clean_text(item)]
         if label:
             lines.append(f"决策建议：{label}")
         if hint:
@@ -3822,6 +3828,9 @@ class AgentResourceOfficer(_PluginBase):
                     "label",
                     "choice",
                     "decision_hint",
+                    "preferred_command",
+                    "fallback_command",
+                    "compact_commands",
                     "recommended_commands",
                 ],
                 "blocked_count": "只统计 hard_risk_reasons，不统计缺字幕等软提醒",
@@ -5007,6 +5016,9 @@ class AgentResourceOfficer(_PluginBase):
             "label": label_map.get(category, category or "后续追踪"),
             "preferred_action": self._clean_text(recommended_action),
             "decision_hint": self._clean_text(follow_up_hint),
+            "preferred_command": command_candidates[0] if command_candidates else "",
+            "fallback_command": command_candidates[1] if len(command_candidates) > 1 else "",
+            "compact_commands": command_candidates[:2],
             "recommended_commands": command_candidates[:3],
             "next_actions": action_names[:4],
             "action_templates_count": len([item for item in (action_templates or []) if isinstance(item, dict)]),
@@ -5021,7 +5033,7 @@ class AgentResourceOfficer(_PluginBase):
         label = AgentResourceOfficer._clean_text(data.get("label"))
         stage = AgentResourceOfficer._clean_text(data.get("stage"))
         hint = AgentResourceOfficer._clean_text(data.get("decision_hint"))
-        commands = [AgentResourceOfficer._clean_text(item) for item in (data.get("recommended_commands") or []) if AgentResourceOfficer._clean_text(item)]
+        commands = [AgentResourceOfficer._clean_text(item) for item in (data.get("compact_commands") or data.get("recommended_commands") or []) if AgentResourceOfficer._clean_text(item)]
         if label:
             lines.append(f"后续追踪：{label}{f' | {stage}' if stage else ''}")
         if hint:
@@ -5320,6 +5332,17 @@ class AgentResourceOfficer(_PluginBase):
             hash_value="",
             preferred="query_mp_lifecycle_status",
         )
+        followup_summary = self._assistant_followup_summary(
+            category="mp_diagnosis",
+            stage=self._clean_text(diagnosis_summary.get("stage")),
+            recommended_action=self._clean_text(diagnosis_summary.get("recommended_action")),
+            follow_up_hint=self._clean_text(diagnosis_summary.get("follow_up_hint")),
+            next_actions=next_actions,
+            action_templates=action_templates,
+            keyword="",
+            hash_value="",
+        )
+        diagnosis_summary["followup_summary"] = followup_summary
         lines = ["最近本地/PT 活动："]
         if download_items:
             lines.append(f"最近下载：{len(download_items)} 条")
@@ -5327,6 +5350,7 @@ class AgentResourceOfficer(_PluginBase):
             lines.append(f"最近入库：{len(transfer_items)} 条")
         if not download_items and not transfer_items:
             lines.append("当前没有可展示的最近下载或入库活动。")
+        lines.extend(self._format_followup_summary_lines(followup_summary))
         self._save_session(cache_key, {
             "kind": "assistant_mp_recent_activity",
             "stage": "recent_activity",
@@ -5354,6 +5378,7 @@ class AgentResourceOfficer(_PluginBase):
                     "items": transfer_items,
                 },
                 "diagnosis_summary": diagnosis_summary,
+                "followup_summary": followup_summary,
                 "recommended_action": diagnosis_summary.get("recommended_action"),
                 "follow_up_hint": diagnosis_summary.get("follow_up_hint"),
                 "next_actions": next_actions,

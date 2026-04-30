@@ -131,9 +131,9 @@ python3 scripts/aro_request.py pick 1
 
 搜索类响应可能带有 `score_summary`，包含 `best` 和 `top_recommendations`。外部智能体应优先读取这个结构化摘要，而不是解析长文本；存在 `hard_risk_reasons` 时不要自动执行，`risk_reasons` 只作为确认前需要解释的提醒。
 
-`score_summary.decision` 是优先读取的下一步建议层，里面会给出 `label`、`decision_hint` 和 `recommended_commands`。外部智能体应直接复用这组命令提示，不要自己再拼另一套确认话术。
+`score_summary.decision` 是优先读取的下一步建议层，里面会给出 `label`、`decision_hint`、`preferred_command`、`fallback_command`、`compact_commands` 和 `recommended_commands`。外部智能体应优先复用前两档短命令，不要自己再拼另一套确认话术。
 
-执行计划后的回执，以及后续的 `execution_followup`、`mp_lifecycle_status`、`mp_ingest_status`，现在会统一附带 `followup_summary`。外部智能体应优先读取它来决定“接下来查下载、查入库还是查诊断”，不要再靠不同 message 文案分支判断。
+执行计划后的回执，以及后续的 `execution_followup`、`smart_followup`、`mp_lifecycle_status`、`mp_ingest_status`、`mp_recent_activity`，现在会统一附带 `followup_summary`。外部智能体应优先读取 `preferred_command`、`fallback_command` 和 `compact_commands` 来决定“接下来查下载、查入库还是查诊断”，不要再靠不同 message 文案分支判断。
 
 评分由插件内置规则执行。外部智能体如需解释规则，可读取 `scoring-policy` 或 `capabilities.scoring_policy`；不要在智能体侧重新打分，也不要绕过 `hard_risk_reasons`。
 
