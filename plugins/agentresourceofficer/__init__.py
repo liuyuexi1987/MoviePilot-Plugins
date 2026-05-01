@@ -663,6 +663,25 @@ class AgentResourceOfficer(_PluginBase):
         return {"action": "mp_recommendations", "keyword": source_name, "type": media_type}
 
     @classmethod
+    def _normalize_recommend_handoff_action(
+        cls,
+        value: Any,
+        *,
+        state: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        current_state = dict(state or {})
+        kind = cls._clean_text(current_state.get("kind"))
+        if kind not in {"assistant_pansou", "assistant_mp", "assistant_hdhive"}:
+            return {}
+        handoff = current_state.get("recommend_handoff")
+        if not isinstance(handoff, dict) or not handoff:
+            return {}
+        compact = re.sub(r"[\s，。？！!?,、:：]+", "", cls._clean_text(value)).lower()
+        if compact not in {"回推荐", "回榜单", "返回推荐", "返回榜单", "推荐", "榜单"}:
+            return {}
+        return {"action": "return_to_recommend"}
+
+    @classmethod
     def _normalize_mp_recommend_direct_intent(cls, value: Any) -> Dict[str, Any]:
         raw = cls._clean_text(value)
         if not raw:
@@ -8650,6 +8669,91 @@ class AgentResourceOfficer(_PluginBase):
             "mp_short_command": "原生",
         }
 
+    def _assistant_recommend_handoff_public_data(self, state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        current_state = dict(state or {})
+        handoff = current_state.get("recommend_handoff")
+        if not isinstance(handoff, dict) or not handoff:
+            return {}
+        selected_index = self._safe_int(handoff.get("selected_index"), 0)
+        selected_item = dict(handoff.get("selected_item") or {}) if isinstance(handoff.get("selected_item"), dict) else {}
+        return {
+            "source": self._clean_text(handoff.get("source")),
+            "requested_source": self._clean_text(handoff.get("requested_source")),
+            "media_type": self._clean_text(handoff.get("media_type")),
+            "selected_index": selected_index if selected_index > 0 else None,
+            "selected_title": self._clean_text(selected_item.get("title")),
+            "return_short_command": "回推荐",
+        }
+
+    def _assistant_recommend_handoff_state(
+        self,
+        *,
+        source: str,
+        requested_source: str,
+        media_type: str,
+        selected_index: int,
+        selected_item: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "source": self._clean_text(source),
+            "requested_source": self._clean_text(requested_source or source),
+            "media_type": self._clean_text(media_type or "all"),
+            "selected_index": max(0, self._safe_int(selected_index, 0)),
+            "return_short_command": "回推荐",
+        }
+        if isinstance(selected_item, dict) and selected_item:
+            payload["selected_item"] = dict(selected_item)
+        return payload
+
+    async def _assistant_restore_mp_recommendation_handoff(
+        self,
+        *,
+        session: str,
+        cache_key: str,
+        state: Dict[str, Any],
+        limit: int = 20,
+    ) -> Dict[str, Any]:
+        handoff = state.get("recommend_handoff")
+        if not isinstance(handoff, dict) or not handoff:
+            return {
+                "success": False,
+                "message": "当前会话没有可恢复的推荐上下文，请重新发送：智能发现 热门电影。",
+                "data": self._assistant_response_data(session=session, data={
+                    "action": "mp_recommendations",
+                    "ok": False,
+                    "error_code": "recommend_handoff_missing",
+                }),
+            }
+        result = await self._assistant_mp_recommendations(
+            source=self._clean_text(handoff.get("requested_source") or handoff.get("source") or "tmdb_trending"),
+            media_type=self._clean_text(handoff.get("media_type") or "all"),
+            limit=limit,
+            session=session,
+            cache_key=cache_key,
+        )
+        if not result.get("success"):
+            return result
+        selected_index = max(0, self._safe_int(handoff.get("selected_index"), 0))
+        if selected_index > 0:
+            refreshed_state = self._load_session(cache_key) or {}
+            items = refreshed_state.get("items") if isinstance(refreshed_state.get("items"), list) else []
+            if selected_index <= len(items):
+                self._save_session(cache_key, {
+                    **refreshed_state,
+                    "selected_index": selected_index,
+                    "selected_item": dict(items[selected_index - 1] or {}),
+                })
+        message = str(result.get("message") or "").strip()
+        if selected_index > 0:
+            message = f"{message}\n已返回推荐列表，默认仍指向第 {selected_index} 项。".strip()
+        result["message"] = message
+        payload = dict(result.get("data") or {})
+        if selected_index > 0:
+            payload["selected_index"] = selected_index
+        payload["return_short_command"] = ""
+        result["data"] = self._assistant_response_data(session=session, data=payload)
+        return result
+
     def _persist_workflow_plans(self) -> None:
         try:
             items = sorted(
@@ -9489,6 +9593,7 @@ class AgentResourceOfficer(_PluginBase):
             items = state.get("items") or []
             payload.update({
                 "result_count": len(items),
+                "recommend_handoff": self._assistant_recommend_handoff_public_data(state),
                 "items_preview": [
                     {
                         "index": self._safe_int(item.get("index"), idx + 1),
@@ -9502,10 +9607,13 @@ class AgentResourceOfficer(_PluginBase):
                 "score_summary": self._score_summary(items, limit=5),
                 "suggested_actions": ["smart_pick.choice", "session_clear"],
             })
+            if payload.get("recommend_handoff"):
+                payload["suggested_actions"] = ["smart_entry.text=回推荐", *list(payload.get("suggested_actions") or [])]
         elif kind == "assistant_mp":
             items = state.get("items") or []
             payload.update({
                 "result_count": len(items),
+                "recommend_handoff": self._assistant_recommend_handoff_public_data(state),
                 "items_preview": [
                     {
                         "index": self._safe_int(item.get("index"), idx + 1),
@@ -9524,6 +9632,8 @@ class AgentResourceOfficer(_PluginBase):
                 "score_summary": self._score_summary(items, limit=5),
                 "suggested_actions": ["mp_download.choice", "mp_subscribe.keyword", "session_clear"],
             })
+            if payload.get("recommend_handoff"):
+                payload["suggested_actions"] = ["smart_entry.text=回推荐", *list(payload.get("suggested_actions") or [])]
         elif kind == "assistant_mp_download_tasks":
             items = state.get("items") or []
             payload.update({
@@ -9706,6 +9816,7 @@ class AgentResourceOfficer(_PluginBase):
                     "smart_entry.text=盘搜",
                 ]
         elif kind == "assistant_hdhive":
+            payload["recommend_handoff"] = self._assistant_recommend_handoff_public_data(state)
             if stage == "candidate":
                 candidates = state.get("candidates") or []
                 current_page = max(1, self._safe_int(state.get("page"), 1))
@@ -9732,6 +9843,8 @@ class AgentResourceOfficer(_PluginBase):
                     ],
                     "suggested_actions": ["smart_pick.choice", "smart_pick.action=详情", "smart_pick.action=下一页", "session_clear"],
                 })
+                if payload.get("recommend_handoff"):
+                    payload["suggested_actions"] = ["smart_entry.text=回推荐", *list(payload.get("suggested_actions") or [])]
             elif stage == "resource":
                 resources = state.get("resources") or []
                 selected_candidate = dict(state.get("selected_candidate") or {})
@@ -9770,6 +9883,8 @@ class AgentResourceOfficer(_PluginBase):
                     "score_summary": self._score_summary(resources, limit=5),
                     "suggested_actions": ["smart_pick.choice", "session_clear"],
                 })
+                if payload.get("recommend_handoff"):
+                    payload["suggested_actions"] = ["smart_entry.text=回推荐", *list(payload.get("suggested_actions") or [])]
         elif kind == "assistant_p115_login":
             payload.update({
                 "client_type": self._clean_text(state.get("client_type")) or self._p115_client_type,
@@ -10181,6 +10296,16 @@ class AgentResourceOfficer(_PluginBase):
                     body={**base_pick, "choice": "<1-N>", "action": "plan", "path": target_path or self._p115_default_path},
                 ),
             ])
+            if isinstance(data.get("recommend_handoff"), dict) and data.get("recommend_handoff"):
+                templates.append(
+                    self._assistant_action_template(
+                        name="return_to_recommendations",
+                        description="返回当前盘搜结果对应的推荐榜单会话",
+                        endpoint="/api/v1/plugin/AgentResourceOfficer/assistant/route",
+                        tool="agent_resource_officer_smart_entry",
+                        body={**base_route, "text": "回推荐"},
+                    )
+                )
         elif kind == "assistant_mp":
             templates.extend([
                 self._assistant_action_template(
@@ -10226,6 +10351,16 @@ class AgentResourceOfficer(_PluginBase):
                     body={**base_state, "name": "start_mp_subscribe_search", "keyword": data.get("keyword") or "<关键词>"},
                 ),
             ])
+            if isinstance(data.get("recommend_handoff"), dict) and data.get("recommend_handoff"):
+                templates.append(
+                    self._assistant_action_template(
+                        name="return_to_recommendations",
+                        description="返回当前原生搜索结果对应的推荐榜单会话",
+                        endpoint="/api/v1/plugin/AgentResourceOfficer/assistant/route",
+                        tool="agent_resource_officer_smart_entry",
+                        body={**base_route, "text": "回推荐"},
+                    )
+                )
         elif kind == "assistant_mp_download_tasks":
             has_items = bool(data.get("items")) or self._safe_int(data.get("result_count"), 0) > 0
             if has_items:
@@ -10456,6 +10591,16 @@ class AgentResourceOfficer(_PluginBase):
                     body={**base_pick, "action": "next_page"},
                 ),
             ])
+            if isinstance(data.get("recommend_handoff"), dict) and data.get("recommend_handoff"):
+                templates.append(
+                    self._assistant_action_template(
+                        name="return_to_recommendations",
+                        description="返回当前影巢候选对应的推荐榜单会话",
+                        endpoint="/api/v1/plugin/AgentResourceOfficer/assistant/route",
+                        tool="agent_resource_officer_smart_entry",
+                        body={**base_route, "text": "回推荐"},
+                    )
+                )
         elif kind == "assistant_hdhive" and stage == "resource":
             templates.extend([
                 self._assistant_action_template(
@@ -10473,6 +10618,16 @@ class AgentResourceOfficer(_PluginBase):
                     body={**base_pick, "choice": "<1-N>", "action": "plan", "path": target_path or self._hdhive_default_path},
                 ),
             ])
+            if isinstance(data.get("recommend_handoff"), dict) and data.get("recommend_handoff"):
+                templates.append(
+                    self._assistant_action_template(
+                        name="return_to_recommendations",
+                        description="返回当前影巢资源列表对应的推荐榜单会话",
+                        endpoint="/api/v1/plugin/AgentResourceOfficer/assistant/route",
+                        tool="agent_resource_officer_smart_entry",
+                        body={**base_route, "text": "回推荐"},
+                    )
+                )
         elif kind == "assistant_p115_login":
             templates.extend([
                 self._assistant_action_template(
@@ -11763,6 +11918,8 @@ class AgentResourceOfficer(_PluginBase):
             payload["session_preference_overrides"] = data.get("session_preference_overrides")
         if isinstance(data.get("insights"), dict):
             payload["insights"] = data.get("insights")
+        if isinstance(data.get("recommend_handoff"), dict):
+            payload["recommend_handoff"] = data.get("recommend_handoff")
         for key in ["download_tasks", "download_history", "transfer_history", "ai_sample_worklist"]:
             if isinstance(data.get(key), dict):
                 payload[key] = data.get(key)
@@ -11791,6 +11948,8 @@ class AgentResourceOfficer(_PluginBase):
             "resolved_by_identifiers",
             "resolved_by_recognizer",
             "sample_removed",
+            "selected_index",
+            "return_short_command",
         ]:
             if key in data:
                 payload[key] = data.get(key)
@@ -15040,6 +15199,10 @@ class AgentResourceOfficer(_PluginBase):
             payload["requested_source"] = self._clean_text(payload.get("requested_source") or session_state.get("requested_source"))
             payload["fallback_source"] = self._clean_text(payload.get("fallback_source") or session_state.get("fallback_source"))
             payload["media_type"] = self._clean_text(payload.get("media_type") or session_state.get("media_type"))
+        recommend_handoff = session_state.get("recommend_handoff") if isinstance(session_state.get("recommend_handoff"), dict) else {}
+        if recommend_handoff:
+            payload["recommend_handoff"] = recommend_handoff
+            payload["return_short_command"] = self._clean_text(payload.get("return_short_command") or recommend_handoff.get("return_short_command") or "回推荐")
         return payload
 
     @staticmethod
@@ -17807,6 +17970,12 @@ class AgentResourceOfficer(_PluginBase):
                 if value not in {None, ""}:
                     parsed[key] = value
             assistant_action = self._clean_text(parsed.get("action"))
+        recommend_handoff_action = self._normalize_recommend_handoff_action(text, state=state)
+        if not assistant_action and recommend_handoff_action:
+            for key, value in recommend_handoff_action.items():
+                if value not in {None, ""}:
+                    parsed[key] = value
+            assistant_action = self._clean_text(parsed.get("action"))
         keyword = self._clean_text(parsed.get("keyword"))
         if assistant_action == "assistant_help":
             summary = self._format_assistant_help_text(session=session)
@@ -18292,6 +18461,13 @@ class AgentResourceOfficer(_PluginBase):
                 session=session,
                 cache_key=cache_key,
             ))
+        if assistant_action == "return_to_recommend":
+            return finish(await self._assistant_restore_mp_recommendation_handoff(
+                session=session,
+                cache_key=cache_key,
+                state=state,
+                limit=self._safe_int(body.get("limit"), 20),
+            ))
         if assistant_action == "p115_help":
             summary = self._format_p115_help_text()
             pending_summary = self._pending_p115_summary(state)
@@ -18566,6 +18742,7 @@ class AgentResourceOfficer(_PluginBase):
         decision_intent = self._clean_text(parsed.get("decision_intent")).lower()
         source_order = body.get("source_order") if isinstance(body.get("source_order"), list) else None
         origin = self._clean_text(body.get("origin"))
+        recommend_handoff = body.get("recommend_handoff") if isinstance(body.get("recommend_handoff"), dict) else {}
         apikey = self._extract_apikey(request, body)
 
         if mode == "smart":
@@ -18747,12 +18924,17 @@ class AgentResourceOfficer(_PluginBase):
                     }),
                 })
             preferences = self._normalize_assistant_preferences((self._assistant_preferences or {}).get(self._normalize_preference_key(session=session)))
-            return finish(await self._assistant_mp_media_search(
+            result = await self._assistant_mp_media_search(
                 keyword=keyword,
                 session=session,
                 cache_key=cache_key,
                 preferences=preferences,
-            ))
+            )
+            if result.get("success") and recommend_handoff:
+                current_state = self._load_session(cache_key) or {}
+                self._save_session(cache_key, {**current_state, "recommend_handoff": dict(recommend_handoff)})
+                result["data"] = self._assistant_response_data(session=session, data=dict(result.get("data") or {}))
+            return finish(result)
 
         if mode == "pansou":
             search_ok, payload, search_message = self._call_pansou_search(keyword)
@@ -18782,6 +18964,7 @@ class AgentResourceOfficer(_PluginBase):
                     "keyword": keyword,
                     "target_path": target_path or self._hdhive_default_path,
                     "items": items,
+                    **({"recommend_handoff": dict(recommend_handoff)} if recommend_handoff else {}),
                 },
             )
             text_message = self._format_pansou_text(keyword, items, int(data.get("total") or len(items)))
@@ -18831,6 +19014,7 @@ class AgentResourceOfficer(_PluginBase):
                 "candidates": candidates,
                 "page": 1,
                 "page_size": self._hdhive_candidate_page_size,
+                **({"recommend_handoff": dict(recommend_handoff)} if recommend_handoff else {}),
             },
         )
         text_message = self._format_candidate_lines(candidates, page=1, page_size=self._hdhive_candidate_page_size)
@@ -20883,6 +21067,14 @@ class AgentResourceOfficer(_PluginBase):
             }
             if next_mode in {"smart_decision", "smart_plan", "smart_execute"}:
                 routed_body["origin"] = "mp_recommend"
+            else:
+                routed_body["recommend_handoff"] = self._assistant_recommend_handoff_state(
+                    source=self._clean_text(state.get("source")),
+                    requested_source=self._clean_text(state.get("requested_source") or state.get("source")),
+                    media_type=selected_media_type,
+                    selected_index=index,
+                    selected_item=selected,
+                )
             return finish(await self.api_assistant_route(
                 _JsonRequestShim(request, routed_body)
             ))

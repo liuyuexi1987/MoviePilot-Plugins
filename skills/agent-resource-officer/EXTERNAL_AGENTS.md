@@ -280,6 +280,8 @@ python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py external-agen
   - `智能发现 热门电影 盘搜`
   - `智能发现 热门电影 影巢`
   - `智能发现 热门电影 原生`
+- 如果已经切到 `盘搜 / 影巢 / 原生`，也支持：
+  - `回推荐`
 - 也支持直接对当前榜单首项继续发：
   - `详情`
   - `计划`
