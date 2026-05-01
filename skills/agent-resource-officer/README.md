@@ -124,6 +124,8 @@ python3 scripts/aro_request.py recover
 python3 scripts/aro_request.py route "盘搜搜索 大君夫人"
 python3 scripts/aro_request.py route "智能搜索 蜘蛛侠"
 python3 scripts/aro_request.py route "资源决策 蜘蛛侠"
+python3 scripts/aro_request.py route "资源决策 蜘蛛侠 计划"
+python3 scripts/aro_request.py route "资源决策 蜘蛛侠 直接执行"
 python3 scripts/aro_request.py route "智能计划 蜘蛛侠"
 python3 scripts/aro_request.py route "智能执行 蜘蛛侠"
 python3 scripts/aro_request.py route "计划最佳"

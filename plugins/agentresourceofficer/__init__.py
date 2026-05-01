@@ -247,6 +247,43 @@ class AgentResourceOfficer(_PluginBase):
         return "", raw
 
     @staticmethod
+    def _extract_smart_decision_intent(text: str) -> Tuple[str, str]:
+        raw = str(text or "").strip()
+        if not raw:
+            return "", ""
+        patterns = [
+            ("execute_now", [
+                r"(?:直接|立即|马上|立刻)?执行$",
+                r"(?:直接|立即|马上|立刻)?下载$",
+                r"(?:直接|立即|马上|立刻)?转存$",
+                r"(?:直接|立即|马上|立刻)?解锁$",
+                r"(?:直接|立即|马上|立刻)?处理$",
+            ]),
+            ("make_plan", [
+                r"(?:先)?生成计划$",
+                r"(?:先)?做计划$",
+                r"(?:先)?出计划$",
+                r"(?:先)?计划$",
+                r"(?:先)?待确认计划$",
+            ]),
+            ("show_detail", [
+                r"(?:先)?看详情$",
+                r"(?:先)?看一下$",
+                r"(?:先)?看看$",
+                r"(?:只)?看推荐$",
+                r"(?:只)?看结果$",
+                r"(?:先)?推荐一下$",
+            ]),
+        ]
+        compact = re.sub(r"\s+", "", raw)
+        for intent, tokens in patterns:
+            for token in tokens:
+                if re.search(token, compact, flags=re.IGNORECASE):
+                    cleaned = re.sub(token, "", compact, flags=re.IGNORECASE).strip()
+                    return cleaned or raw, intent
+        return raw, ""
+
+    @staticmethod
     def _match_command_prefix(raw: str, prefixes: List[str]) -> Optional[Tuple[str, str]]:
         text = str(raw or "").strip()
         for prefix in prefixes:
@@ -5501,7 +5538,15 @@ class AgentResourceOfficer(_PluginBase):
                 source_order=source_order,
                 target_path=target_path,
             )
-            smart_state = self._load_session(cache_key) or {}
+            smart_state = self._assistant_smart_state_after_search(
+                cache_key=cache_key,
+                keyword=keyword,
+                media_type=media_type,
+                year=year,
+                source_order=source_order,
+                target_path=target_path,
+                search_result=search_result,
+            )
             if not search_result.get("success") and not bool(((search_result.get("data") or {}).get("best_candidate") or {}).get("source_type")):
                 return search_result
             return self._assistant_smart_best_plan_response(
@@ -5539,7 +5584,15 @@ class AgentResourceOfficer(_PluginBase):
                 source_order=source_order,
                 target_path=target_path,
             )
-            smart_state = self._load_session(cache_key) or {}
+            smart_state = self._assistant_smart_state_after_search(
+                cache_key=cache_key,
+                keyword=keyword,
+                media_type=media_type,
+                year=year,
+                source_order=source_order,
+                target_path=target_path,
+                search_result=search_result,
+            )
             if not search_result.get("success") and not bool(((search_result.get("data") or {}).get("best_candidate") or {}).get("source_type")):
                 return search_result
             return await self._assistant_smart_best_execute_response(
@@ -5555,6 +5608,79 @@ class AgentResourceOfficer(_PluginBase):
             cache_key=cache_key,
             target_path=target_path,
         )
+
+    def _assistant_smart_state_after_search(
+        self,
+        *,
+        cache_key: str,
+        keyword: str,
+        media_type: str,
+        year: str,
+        source_order: Optional[List[str]] = None,
+        target_path: str = "",
+        search_result: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        current_state = dict(self._load_session(cache_key) or {})
+        if self._clean_text(current_state.get("kind")) == "assistant_smart_search":
+            return current_state
+        data = (search_result or {}).get("data") if isinstance((search_result or {}).get("data"), dict) else {}
+        best_candidate = data.get("best_candidate") if isinstance(data.get("best_candidate"), dict) else {}
+        source_type = self._clean_text(best_candidate.get("source_type")).lower()
+        if not source_type:
+            return current_state
+        source_states = copy.deepcopy(current_state.get("source_states") or {}) if isinstance(current_state.get("source_states"), dict) else {}
+        raw_item = dict(best_candidate.get("raw_item") or {}) if isinstance(best_candidate.get("raw_item"), dict) else {}
+        choice = self._safe_int(best_candidate.get("choice") or raw_item.get("index"), 0)
+        final_path = self._clean_text(target_path or current_state.get("target_path") or data.get("target_path"))
+
+        if source_type == "pansou" and raw_item:
+            item = dict(raw_item)
+            if choice and not item.get("index"):
+                item["index"] = choice
+            if not final_path:
+                share_url = self._clean_text(item.get("url"))
+                final_path = self._p115_default_path if self._is_115_url(share_url) else self._quark_default_path
+            source_states[source_type] = {
+                "kind": "assistant_pansou",
+                "stage": "result",
+                "keyword": keyword,
+                "target_path": final_path,
+                "items": [item],
+            }
+        elif source_type == "hdhive" and raw_item:
+            resource = dict(raw_item)
+            source_states[source_type] = {
+                "kind": "assistant_hdhive",
+                "stage": "resource_list",
+                "keyword": keyword,
+                "target_path": final_path or self._hdhive_default_path,
+                "resources": [resource],
+                "items": [resource],
+            }
+
+        active_state = copy.deepcopy(source_states.get(source_type) or current_state.get("active_state") or {})
+        fallback_state = {
+            "kind": "assistant_smart_search",
+            "stage": "result",
+            "keyword": keyword,
+            "media_type": media_type,
+            "year": year,
+            "target_path": final_path,
+            "active_source": source_type,
+            "active_state": active_state,
+            "source_states": source_states,
+            "sources_checked": data.get("sources_checked") if isinstance(data.get("sources_checked"), list) else [],
+            "best_candidate": best_candidate,
+            "alternatives": data.get("alternatives") if isinstance(data.get("alternatives"), list) else [],
+            "decision_summary": data.get("decision_summary") if isinstance(data.get("decision_summary"), dict) else {},
+            "available_sources": data.get("available_sources") if isinstance(data.get("available_sources"), list) else [],
+            "blocked_sources": data.get("blocked_sources") if isinstance(data.get("blocked_sources"), list) else [],
+            "source_order": source_order or current_state.get("source_order") or [],
+            "decision_profile": self._clean_text(current_state.get("decision_profile") or ((data.get("decision_summary") or {}) if isinstance(data.get("decision_summary"), dict) else {}).get("decision_profile")),
+            "decision_entry": self._clean_text(data.get("action") or current_state.get("decision_entry") or "smart_resource_search"),
+        }
+        self._save_session(cache_key, fallback_state)
+        return fallback_state
 
     @staticmethod
     def _assistant_score_warning_text(score: Dict[str, Any], *, limit: int = 3) -> str:
@@ -13251,7 +13377,13 @@ class AgentResourceOfficer(_PluginBase):
             "status": "",
             "hash": "",
             "plan_id": plan_match.group(0) if plan_match else "",
+            "decision_intent": "",
         }
+        if options.get("mode") in {"smart", "smart_decision"} and options.get("keyword"):
+            cleaned_keyword, decision_intent = AgentResourceOfficer._extract_smart_decision_intent(options.get("keyword") or "")
+            options["keyword"] = cleaned_keyword.strip()
+            if decision_intent:
+                options["decision_intent"] = decision_intent
         if options.get("plan_id") and compact.startswith(("执行plan-", "确认plan-", "executeplan-")):
             options["action"] = "execute_plan"
             options["mode"] = ""
@@ -13772,7 +13904,7 @@ class AgentResourceOfficer(_PluginBase):
                     options["action"] = "mp_download_tasks"
                     options["mode"] = ""
                     options["keyword"] = prefix_match[1]
-            if not options.get("action"):
+            if not options.get("action") and not options.get("mode"):
                 prefix_match = AgentResourceOfficer._match_command_prefix(raw, ["资源决策", "智能决策"])
                 if prefix_match:
                     options["mode"] = "smart_decision"
@@ -16451,6 +16583,7 @@ class AgentResourceOfficer(_PluginBase):
         mode = parsed.get("mode") or "hdhive"
         media_type = self._clean_text(parsed.get("type") or "auto").lower() or "auto"
         year = self._clean_text(parsed.get("year"))
+        decision_intent = self._clean_text(parsed.get("decision_intent")).lower()
         source_order = body.get("source_order") if isinstance(body.get("source_order"), list) else None
 
         if mode == "smart":
@@ -16464,6 +16597,28 @@ class AgentResourceOfficer(_PluginBase):
                         "error_code": "missing_keyword",
                     }),
                 })
+            if decision_intent == "make_plan":
+                return finish(await self._assistant_smart_resource_plan(
+                    request,
+                    keyword=keyword,
+                    session=session,
+                    cache_key=cache_key,
+                    media_type=media_type,
+                    year=year,
+                    source_order=source_order,
+                    target_path=target_path,
+                ))
+            if decision_intent == "execute_now":
+                return finish(await self._assistant_smart_resource_execute(
+                    request,
+                    keyword=keyword,
+                    session=session,
+                    cache_key=cache_key,
+                    media_type=media_type,
+                    year=year,
+                    source_order=source_order,
+                    target_path=target_path,
+                ))
             return finish(await self._assistant_smart_resource_search(
                 request,
                 keyword=keyword,
@@ -16486,6 +16641,28 @@ class AgentResourceOfficer(_PluginBase):
                         "error_code": "missing_keyword",
                     }),
                 })
+            if decision_intent == "make_plan":
+                return finish(await self._assistant_smart_resource_plan(
+                    request,
+                    keyword=keyword,
+                    session=session,
+                    cache_key=cache_key,
+                    media_type=media_type,
+                    year=year,
+                    source_order=source_order,
+                    target_path=target_path,
+                ))
+            if decision_intent == "execute_now":
+                return finish(await self._assistant_smart_resource_execute(
+                    request,
+                    keyword=keyword,
+                    session=session,
+                    cache_key=cache_key,
+                    media_type=media_type,
+                    year=year,
+                    source_order=source_order,
+                    target_path=target_path,
+                ))
             return finish(await self._assistant_smart_resource_decision(
                 request,
                 keyword=keyword,

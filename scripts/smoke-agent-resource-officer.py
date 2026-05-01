@@ -658,6 +658,14 @@ def main() -> int:
                     "decision_mode": smart_decision_switch_data.get("decision_mode"),
                 }, ensure_ascii=False)[:240],
             )
+            smart_decision_plan = route(base_url, api_key, sessions[1], f"资源决策 {args.keyword} 计划")
+            smart_decision_plan_data = assert_route_action("route_smart_decision_plan_intent", smart_decision_plan, "workflow_plan")
+            assert_ok(
+                "route_smart_decision_plan_intent",
+                bool(smart_decision_plan_data.get("plan_id"))
+                and smart_decision_plan_data.get("workflow") == "smart_resource_plan",
+                json.dumps(smart_decision_plan_data, ensure_ascii=False)[:240],
+            )
             smart_search_best_plan = route(base_url, api_key, sessions[1], "计划最佳")
             smart_search_best_plan_data = assert_route_action("route_smart_search_best_plan", smart_search_best_plan, "workflow_plan")
             assert_ok(
