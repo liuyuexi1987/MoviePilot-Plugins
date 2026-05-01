@@ -19,6 +19,8 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
   - `route "工作清单 <片名>" --summary-only`
   - `route "样本洞察 <片名>" --summary-only`
   - `route "重放样本 3" --summary-only`
+  - `route "重放 3" --summary-only`
+  - `route "确认" --summary-only`
   - `templates --recipe ai_reingest --compact`
 
 给外部智能体学习时，建议让它先读仓库中的：
@@ -114,8 +116,10 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
 如果用户已经明确要对某条样本做二次识别重放，再用：
 
 - `route "重放样本 3" --summary-only`
+- 或在当前 AI 样本会话里直接发：`route "重放 3" --summary-only`
+- 计划生成后再发：`route "确认" --summary-only`
 
-这一步当前只生成待确认计划，真正执行仍然要走 `执行计划 <plan_id>`。
+这一步仍然遵守确认链：先生成待确认计划，再通过 `确认` 或 `执行计划 <plan_id>` 实际执行。
 
 三类入口都复用同一套 assistant 协议：
 

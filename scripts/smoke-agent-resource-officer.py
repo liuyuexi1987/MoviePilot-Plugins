@@ -1164,6 +1164,27 @@ def main() -> int:
                     ai_replay_data.get("error_code") in {"sample_not_found", "missing_sample_index"},
                     json.dumps(ai_replay_data, ensure_ascii=False)[:240],
                 )
+            ai_replay_short = route(base_url, api_key, sessions[4], "重放 1")
+            ai_replay_short_data = assert_route_action("route_ai_replay_short_command", ai_replay_short, "ai_replay_failed_sample", require_success=False)
+            if ai_replay_short.get("success"):
+                assert_ok(
+                    "route_ai_replay_short_plan",
+                    bool(ai_replay_short_data.get("plan_id")) and ai_replay_short_data.get("workflow") == "ai_replay_failed_sample",
+                    json.dumps(ai_replay_short_data, ensure_ascii=False)[:240],
+                )
+                ai_replay_confirm = route(base_url, api_key, sessions[4], "确认")
+                ai_replay_confirm_data = assert_route_action("route_ai_replay_confirm_short", ai_replay_confirm, "execute_plan", require_success=False)
+                assert_ok(
+                    "route_ai_replay_confirm_short_ok",
+                    ai_replay_confirm_data.get("write_effect") == "write",
+                    json.dumps(ai_replay_confirm_data, ensure_ascii=False)[:240],
+                )
+            else:
+                assert_ok(
+                    "route_ai_replay_short_empty_ok",
+                    ai_replay_short_data.get("error_code") in {"sample_not_found", "missing_sample_index"},
+                    json.dumps(ai_replay_short_data, ensure_ascii=False)[:240],
+                )
 
             smart_followup_idle = route(base_url, api_key, sessions[4], "跟进")
             smart_followup_idle_data = assert_route_action("route_smart_followup_idle", smart_followup_idle, "smart_followup")

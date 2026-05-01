@@ -14,6 +14,8 @@
   - `python3 scripts/aro_request.py route --text "工作清单 蜘蛛侠" --summary-only`
   - `python3 scripts/aro_request.py route --text "样本洞察 蜘蛛侠" --summary-only`
   - `python3 scripts/aro_request.py route --text "重放样本 3" --summary-only`
+  - `python3 scripts/aro_request.py route --text "重放 3" --summary-only`
+  - `python3 scripts/aro_request.py route --text "确认" --summary-only`
   - `python3 scripts/aro_request.py templates --recipe ai_reingest --compact`
 - 当前最低成本入口：
   - `python3 scripts/aro_request.py readiness`
@@ -140,6 +142,8 @@ python3 scripts/aro_request.py route "失败样本 蜘蛛侠"
 python3 scripts/aro_request.py route "工作清单 蜘蛛侠"
 python3 scripts/aro_request.py route "样本洞察 蜘蛛侠"
 python3 scripts/aro_request.py route "重放样本 3"
+python3 scripts/aro_request.py route "重放 3"
+python3 scripts/aro_request.py route "确认"
 python3 scripts/aro_request.py route "先计划"
 python3 scripts/aro_request.py route "确认执行"
 python3 scripts/aro_request.py route "先看详情"
@@ -217,7 +221,8 @@ python3 scripts/aro_request.py pick 1
 AI 失败样本链现在分两步：
 
 - `失败样本 / 工作清单 / 样本洞察`：只读诊断
-- `重放样本 3`：只生成待确认计划
+- `重放样本 3` 或会话内 `重放 3`：只生成待确认计划
+- `确认`：执行当前会话里最近一条 AI 重放计划
 
 真正执行仍然要回复 `执行计划 <plan_id>`，不会直接裸重放。
 

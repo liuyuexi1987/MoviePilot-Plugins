@@ -500,6 +500,55 @@ class AgentResourceOfficer(_PluginBase):
             return "best_execute"
         return ""
 
+    @classmethod
+    def _normalize_ai_reingest_short_action(
+        cls,
+        value: Any,
+        *,
+        state: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        current_state = dict(state or {})
+        kind = cls._clean_text(current_state.get("kind"))
+        compact = re.sub(r"\s+", "", str(value or "").strip().lower())
+        result: Dict[str, Any] = {}
+        ai_session_kinds = {
+            "assistant_ai_failed_samples",
+            "assistant_ai_sample_worklist",
+            "assistant_ai_sample_insights",
+            "assistant_ai_replay",
+        }
+        saved_plan = dict((current_state.get("saved_plan") or {}).get("latest") or {})
+        saved_workflow = cls._clean_text(saved_plan.get("workflow"))
+        has_pending_ai_replay_plan = (
+            bool((current_state.get("saved_plan") or {}).get("has_pending"))
+            and saved_workflow == "ai_replay_failed_sample"
+        )
+        if has_pending_ai_replay_plan and compact in {"确认", "确认吧", "执行", "执行吧", "确定", "确定执行", "run", "execute"}:
+            return {"action": "execute_plan"}
+        if kind not in ai_session_kinds:
+            return {}
+        if compact in {"工作清单", "返回工作清单", "回工作清单"}:
+            return {"action": "ai_sample_worklist", "keyword": cls._clean_text(current_state.get("keyword"))}
+        if compact in {"失败样本", "返回失败样本", "回失败样本"}:
+            return {"action": "ai_failed_samples", "keyword": cls._clean_text(current_state.get("keyword"))}
+        if compact in {"样本洞察", "洞察", "返回样本洞察", "回样本洞察"}:
+            return {"action": "ai_sample_insights", "keyword": cls._clean_text(current_state.get("keyword"))}
+        raw = cls._clean_text(value)
+        replay_match = re.match(r"^\s*(重放|重识别|重跑)\s*(\d+)(?:\s+(.*))?$", raw)
+        if replay_match:
+            result = {
+                "action": "ai_replay_failed_sample",
+                "sample_index": replay_match.group(2),
+                "keyword": "",
+                "mode": "",
+                "remove_if_resolved": "true",
+            }
+            remain_text = cls._clean_text(replay_match.group(3))
+            if "保留样本" in remain_text or "不移除" in remain_text:
+                result["remove_if_resolved"] = "false"
+            return result
+        return {}
+
     @staticmethod
     def _normalize_pick_mode(value: Any) -> str:
         text = str(value or "").strip().lower()
@@ -7537,6 +7586,10 @@ class AgentResourceOfficer(_PluginBase):
             session_id=cache_key,
             keyword=keyword,
         )
+        decision_summary = self._assistant_ai_reingest_decision_summary(
+            items=items,
+            fallback_command="工作清单",
+        )
         lines = [f"AI 失败样本：{self._clean_text(keyword) or '全部'}"]
         if items:
             lines.append(f"命中 {len(items)} 条，展示前 {min(len(items), 6)} 条：")
@@ -7562,6 +7615,7 @@ class AgentResourceOfficer(_PluginBase):
                 "total": self._safe_int(((result.get("data") or {}).get("count")), len(items)),
                 "next_actions": next_actions,
                 "action_templates": action_templates,
+                "decision_summary": decision_summary,
                 "recommended_action": "query_ai_sample_worklist",
                 "follow_up_hint": "先看工作清单或样本洞察，再决定是否进入二次识别重放。",
             }),
@@ -7585,6 +7639,10 @@ class AgentResourceOfficer(_PluginBase):
             session=session,
             session_id=cache_key,
             keyword=keyword,
+        )
+        decision_summary = self._assistant_ai_reingest_decision_summary(
+            items=items,
+            fallback_command="样本洞察",
         )
         lines = [f"AI 工作清单：{self._clean_text(keyword) or '全部'}"]
         if items:
@@ -7611,6 +7669,7 @@ class AgentResourceOfficer(_PluginBase):
                 "total": self._safe_int(((result.get("data") or {}).get("count")), len(items)),
                 "next_actions": next_actions,
                 "action_templates": action_templates,
+                "decision_summary": decision_summary,
                 "recommended_action": "query_ai_sample_insights",
                 "follow_up_hint": "先看样本洞察确认哪些失败样本最值得重放或生成识别词。",
             }),
@@ -7634,6 +7693,11 @@ class AgentResourceOfficer(_PluginBase):
             session_id=cache_key,
             keyword=keyword,
         )
+        priority_samples = insights.get("priority_samples") if isinstance(insights.get("priority_samples"), list) else []
+        decision_summary = self._assistant_ai_reingest_decision_summary(
+            items=priority_samples,
+            fallback_command="工作清单",
+        )
         lines = [f"AI 样本洞察：{self._clean_text(keyword) or '全局'}"]
         total_count = self._safe_int(insights.get("total_count"), 0)
         if total_count > 0:
@@ -7648,7 +7712,6 @@ class AgentResourceOfficer(_PluginBase):
                 lines.append("重复出现的样本组：")
                 for item in repeated_groups[:safe_top]:
                     lines.append(f"- {self._clean_text(item.get('title')) or '-'}：{self._safe_int(item.get('count'), 0)}")
-            priority_samples = insights.get("priority_samples") if isinstance(insights.get("priority_samples"), list) else []
             if priority_samples:
                 lines.append("优先处理样本：")
                 lines.extend(self._assistant_ai_sample_brief_lines(priority_samples, limit=safe_top))
@@ -7671,6 +7734,7 @@ class AgentResourceOfficer(_PluginBase):
                 "insights": insights,
                 "next_actions": next_actions,
                 "action_templates": action_templates,
+                "decision_summary": decision_summary,
                 "recommended_action": "query_ai_sample_worklist",
                 "follow_up_hint": "先挑优先样本，再确认是否进入 AI 二次识别重放。",
             }),
@@ -7738,6 +7802,47 @@ class AgentResourceOfficer(_PluginBase):
         ])
         return next_actions, templates
 
+    def _assistant_ai_reingest_decision_summary(
+        self,
+        *,
+        items: List[Dict[str, Any]],
+        fallback_command: str,
+    ) -> Dict[str, Any]:
+        fallback = self._clean_text(fallback_command)
+        first_index = 0
+        for item in items or []:
+            first_index = self._safe_int((item or {}).get("index"), 0)
+            if first_index > 0:
+                break
+        if first_index <= 0:
+            return {
+                "decision_mode": "show_detail",
+                "decision_reason": "当前没有可直接重放的 AI 失败样本。",
+                "preferred_command": fallback,
+                "fallback_command": "",
+                "compact_commands": [fallback] if fallback else [],
+                "recommended_agent_behavior": "show_only" if fallback else "stop",
+                "auto_run_command": "",
+                "confirm_command": "",
+                "display_command": fallback,
+            }
+        replay_command = f"重放 {first_index}"
+        return {
+            "decision_mode": "make_plan",
+            "decision_reason": f"先为样本 #{first_index} 生成二次识别重放计划，再确认是否实际重放。",
+            "preferred_command": replay_command,
+            "fallback_command": fallback,
+            "compact_commands": [item for item in [replay_command, fallback] if item],
+            "command_policy": "read_then_confirm_write",
+            "preferred_requires_confirmation": False,
+            "fallback_requires_confirmation": False,
+            "can_auto_run_preferred": True,
+            "recommended_agent_behavior": "auto_continue_then_wait_confirmation",
+            "auto_run_command": replay_command,
+            "confirm_command": "确认",
+            "display_command": replay_command,
+        }
+
     def _assistant_ai_replay_sample_plan_response(
         self,
         *,
@@ -7799,6 +7904,25 @@ class AgentResourceOfficer(_PluginBase):
                 "source_sample": reference,
                 "target": reference.get("inferred_target") if isinstance(reference.get("inferred_target"), dict) else {},
                 "keyword": title,
+                "decision_summary": {
+                    "decision_mode": "execute_now",
+                    "decision_reason": (
+                        "AI 二次识别重放计划已生成，确认后才会实际重放并尝试重新识别。"
+                        if bool(remove_if_resolved)
+                        else "AI 二次识别重放计划已生成，确认后会实际重放，但保留原失败样本。"
+                    ),
+                    "preferred_command": "确认",
+                    "fallback_command": "工作清单",
+                    "compact_commands": ["确认", "工作清单"],
+                    "command_policy": "confirm_then_resume",
+                    "preferred_requires_confirmation": True,
+                    "fallback_requires_confirmation": False,
+                    "can_auto_run_preferred": False,
+                    "recommended_agent_behavior": "wait_user_confirmation",
+                    "auto_run_command": "",
+                    "confirm_command": "确认",
+                    "display_command": "确认",
+                },
             },
         )
 
@@ -17085,6 +17209,12 @@ class AgentResourceOfficer(_PluginBase):
             })
 
         assistant_action = preparsed_action
+        ai_short_action = self._normalize_ai_reingest_short_action(text, state=state)
+        if not assistant_action and ai_short_action:
+            for key, value in ai_short_action.items():
+                if value not in {None, ""}:
+                    parsed[key] = value
+            assistant_action = self._clean_text(parsed.get("action"))
         keyword = self._clean_text(parsed.get("keyword"))
         if assistant_action == "assistant_help":
             summary = self._format_assistant_help_text(session=session)
