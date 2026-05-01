@@ -435,7 +435,7 @@ class AgentResourceOfficer(_PluginBase):
     @staticmethod
     def _normalize_pick_action(value: Any) -> str:
         text = str(value or "").strip().lower()
-        if text in {"继续推荐", "继续决策", "继续资源决策", "decision_continue"}:
+        if text in {"继续决策", "继续资源决策", "decision_continue"}:
             return "decision_continue"
         if text in {"换影巢", "切换影巢", "走影巢", "用影巢", "decision_hdhive"}:
             return "decision_hdhive"
@@ -579,6 +579,37 @@ class AgentResourceOfficer(_PluginBase):
             if match:
                 return {"index": match.group(1), **base}
         return {}
+
+    @classmethod
+    def _normalize_mp_recommend_followup(
+        cls,
+        value: Any,
+        *,
+        state: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        current_state = dict(state or {})
+        if cls._clean_text(current_state.get("kind")) != "assistant_mp_recommend":
+            return {}
+        compact = re.sub(r"[\s，。？！!?,、:：]+", "", cls._clean_text(value)).lower()
+        followup_aliases = {
+            "电影": ("tmdb_movies", "movie"),
+            "热门电影": ("tmdb_movies", "movie"),
+            "电视剧": ("tmdb_tvs", "tv"),
+            "热门电视剧": ("tmdb_tvs", "tv"),
+            "豆瓣": ("douban_hot", "all"),
+            "豆瓣热门": ("douban_hot", "all"),
+            "热映": ("douban_movie_showing", "movie"),
+            "正在热映": ("douban_movie_showing", "movie"),
+            "番剧": ("bangumi_calendar", "tv"),
+            "今日番剧": ("bangumi_calendar", "tv"),
+            "tmdb": ("tmdb_trending", "all"),
+            "热门": ("tmdb_trending", "all"),
+        }
+        source_pair = followup_aliases.get(compact)
+        if not source_pair:
+            return {}
+        source_name, media_type = source_pair
+        return {"action": "mp_recommendations", "keyword": source_name, "type": media_type}
 
     @staticmethod
     def _normalize_pick_mode(value: Any) -> str:
@@ -5740,7 +5771,7 @@ class AgentResourceOfficer(_PluginBase):
                         plan_short_command,
                         execute_command,
                         confirm_short_command,
-                        "继续推荐",
+                        "继续决策",
                         "换影巢",
                         "换盘搜",
                         "换PT",
@@ -9448,6 +9479,11 @@ class AgentResourceOfficer(_PluginBase):
                 ],
                 "suggested_actions": [
                     "smart_pick.choice",
+                    "smart_entry.text=电影",
+                    "smart_entry.text=电视剧",
+                    "smart_entry.text=豆瓣",
+                    "smart_entry.text=热映",
+                    "smart_entry.text=番剧",
                     "smart_pick.choice mode=hdhive",
                     "smart_pick.choice mode=pansou",
                     "session_clear",
@@ -11471,6 +11507,10 @@ class AgentResourceOfficer(_PluginBase):
                 payload[key] = data.get(key)
         for key in [
             "provider",
+            "source",
+            "requested_source",
+            "fallback_source",
+            "media_type",
             "page",
             "total_pages",
             "selected_candidate",
@@ -14727,6 +14767,11 @@ class AgentResourceOfficer(_PluginBase):
             payload["next_actions"] = ["preferences.init", *list(payload["next_actions"] or [])]
         payload["action_templates"] = payload.get("action_templates") or session_state.get("action_templates") or []
         payload["recovery"] = payload.get("recovery") or session_state.get("recovery") or self._assistant_recovery_public_data(session_state=session_state)
+        if payload.get("action") == "mp_recommendations" or self._clean_text(session_state.get("kind")) == "assistant_mp_recommend":
+            payload["source"] = self._clean_text(payload.get("source") or session_state.get("source"))
+            payload["requested_source"] = self._clean_text(payload.get("requested_source") or session_state.get("requested_source"))
+            payload["fallback_source"] = self._clean_text(payload.get("fallback_source") or session_state.get("fallback_source"))
+            payload["media_type"] = self._clean_text(payload.get("media_type") or session_state.get("media_type"))
         return payload
 
     @staticmethod
@@ -15084,7 +15129,6 @@ class AgentResourceOfficer(_PluginBase):
             options["mode"] = ""
             options["keyword"] = ""
         elif compact in {
-            "继续推荐",
             "继续决策",
             "继续资源决策",
             "decisioncontinue",
@@ -17342,9 +17386,7 @@ class AgentResourceOfficer(_PluginBase):
             session_id=body.get("session_id"),
         )
         text = self._clean_text(body.get("text") or body.get("query") or body.get("message") or "")
-        parsed = self._merge_assistant_structured_input(body, self._parse_assistant_text(text))
         state = self._load_session(cache_key) or {}
-        target_path = parsed.get("path") or ""
         compact = self._parse_bool_value(body.get("compact"), False)
 
         def finish(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -17353,6 +17395,23 @@ class AgentResourceOfficer(_PluginBase):
         def immediate(result: Dict[str, Any]) -> Dict[str, Any]:
             return result
 
+        parsed = self._merge_assistant_structured_input(body, self._parse_assistant_text(text))
+        target_path = parsed.get("path") or ""
+
+        recommend_followup = self._normalize_mp_recommend_followup(text, state=state)
+        has_recommend_followup = bool(recommend_followup)
+        if self._clean_text((recommend_followup or {}).get("action")) == "mp_recommendations":
+            return finish(await self._assistant_mp_recommendations(
+                source=self._clean_text(recommend_followup.get("keyword") or state.get("requested_source") or state.get("source") or "tmdb_trending"),
+                media_type=self._clean_text(recommend_followup.get("type") or state.get("media_type") or "all"),
+                limit=self._safe_int(body.get("limit"), 20),
+                session=session,
+                cache_key=cache_key,
+            ))
+        if recommend_followup:
+            for key, value in recommend_followup.items():
+                if value not in {None, ""}:
+                    parsed[key] = str(value)
         preparsed_action = self._clean_text(parsed.get("action"))
         recommend_short = self._normalize_mp_recommend_short_action(text, state=state)
         if preparsed_action not in {"ai_replay_failed_sample"} and recommend_short:
@@ -17369,7 +17428,7 @@ class AgentResourceOfficer(_PluginBase):
             )
             return pick_result
         pick_index, pick_path, pick_action, pick_mode = self._parse_pick_text(text)
-        if preparsed_action not in {"ai_replay_failed_sample"} and (pick_index > 0 or pick_action):
+        if not has_recommend_followup and preparsed_action not in {"ai_replay_failed_sample"} and (pick_index > 0 or pick_action):
             pick_result = await self.api_assistant_pick(
                 _JsonRequestShim(request, {
                     "session": session,
@@ -17383,7 +17442,7 @@ class AgentResourceOfficer(_PluginBase):
             )
             return pick_result
 
-        if preparsed_action not in {"ai_replay_failed_sample"}:
+        if not has_recommend_followup and preparsed_action not in {"ai_replay_failed_sample"}:
             route_action = self._normalize_pick_action(text)
             smart_route_action = self._normalize_smart_search_short_action(text, state_kind=state.get("kind"))
             if smart_route_action:

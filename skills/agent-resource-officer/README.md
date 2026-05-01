@@ -178,6 +178,12 @@ python3 scripts/aro_request.py pick 1
 - `决策 1`
 - `计划 1`
 - `确认 1`
+以及推荐会话内 follow-up：
+- `电影`
+- `电视剧`
+- `豆瓣`
+- `热映`
+- `番剧`
 
 注意：`workflow` 会直接执行只读工作流；涉及下载、订阅、解锁或转存的写入工作流会默认保存待确认执行的 `plan_id`。
 
@@ -210,7 +216,6 @@ python3 scripts/aro_request.py pick 1
 
 - `python3 scripts/aro_request.py route "计划最佳"`
 - `python3 scripts/aro_request.py route "执行最佳"`
-- `python3 scripts/aro_request.py route "继续推荐"`
 - `python3 scripts/aro_request.py route "换影巢"`
 - `python3 scripts/aro_request.py route "换盘搜"`
 - `python3 scripts/aro_request.py route "换PT"`

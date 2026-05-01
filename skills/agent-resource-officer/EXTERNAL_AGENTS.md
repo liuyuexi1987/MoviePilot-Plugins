@@ -90,7 +90,6 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
 
 - `计划最佳`
 - `执行最佳`
-- `继续推荐`
 - `换影巢`
 - `换盘搜`
 - `换PT`
@@ -276,6 +275,11 @@ python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py external-agen
   - `决策 1`
   - `计划 1`
   - `确认 1`
+  - `电影`
+  - `电视剧`
+  - `豆瓣`
+  - `热映`
+  - `番剧`
 
 统一入口：
 POST /api/v1/plugin/AgentResourceOfficer/assistant/route?apikey={MP_API_TOKEN}

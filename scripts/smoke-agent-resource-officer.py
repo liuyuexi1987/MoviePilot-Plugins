@@ -248,6 +248,7 @@ def main() -> int:
             f"smoke-aro-smart-discovery-short-decision-{stamp}",
             f"smoke-aro-smart-discovery-short-plan-{stamp}",
             f"smoke-aro-smart-discovery-short-execute-{stamp}",
+            f"smoke-aro-smart-discovery-followups-{stamp}",
         ])
 
     try:
@@ -1336,7 +1337,28 @@ def main() -> int:
                 and recommend_short_execute_data.get("write_effect") == "write",
                 json.dumps(recommend_short_execute, ensure_ascii=False)[:240],
             )
-
+            smart_discovery_followups = route(base_url, api_key, sessions[14], "智能发现 热门电影")
+            assert_route_action("route_smart_discovery_followups", smart_discovery_followups, "mp_recommendations")
+            recommend_followup_movies = route(base_url, api_key, sessions[14], "电影")
+            recommend_followup_movies_data = assert_route_action("route_recommend_followup_movies", recommend_followup_movies, "mp_recommendations")
+            assert_ok(
+                "route_recommend_followup_movies_payload",
+                (
+                    recommend_followup_movies_data.get("kind") == "assistant_mp_recommend"
+                    and "tmdb_movies" in str(recommend_followup_movies_data.get("message_head") or "")
+                ),
+                json.dumps(recommend_followup_movies_data, ensure_ascii=False)[:240],
+            )
+            recommend_followup_bangumi = route(base_url, api_key, sessions[14], "番剧")
+            recommend_followup_bangumi_data = assert_route_action("route_recommend_followup_bangumi", recommend_followup_bangumi, "mp_recommendations")
+            assert_ok(
+                "route_recommend_followup_bangumi_payload",
+                (
+                    recommend_followup_bangumi_data.get("kind") == "assistant_mp_recommend"
+                    and "bangumi_calendar" in str(recommend_followup_bangumi_data.get("message_head") or "")
+                ),
+                json.dumps(recommend_followup_bangumi_data, ensure_ascii=False)[:240],
+            )
             tv_recommend = route(base_url, api_key, sessions[7], "热门电视剧")
             assert_route_action("route_recommend_tv", tv_recommend, "mp_recommendations")
             tv_message = message_text(tv_recommend)

@@ -70,6 +70,11 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
     - `route "决策 1" --summary-only`
     - `route "计划 1" --summary-only`
     - `route "确认 1" --summary-only`
+    - `route "电影" --summary-only`
+    - `route "电视剧" --summary-only`
+    - `route "豆瓣" --summary-only`
+    - `route "热映" --summary-only`
+    - `route "番剧" --summary-only`
 - 如果用户已经明确要计划或直接执行，也可以直接发：
   - `route "资源决策 <片名> 详情" --summary-only`
   - `route "资源决策 <片名> 计划" --summary-only`
@@ -98,7 +103,6 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
 
 - `计划最佳`
 - `执行最佳`
-- `继续推荐`
 - `换影巢`
 - `换盘搜`
 - `换PT`
