@@ -441,6 +441,9 @@ def compact(data):
             "auto_run_command",
             "confirm_command",
             "display_command",
+            "detail_short_command",
+            "plan_short_command",
+            "confirm_short_command",
         ]
         out = {key: data.get(key) for key in ["success", "message"] if key in data}
         for key in keys:
@@ -564,6 +567,9 @@ def compact_command_summary(output):
         "auto_run_command": str(payload.get("auto_run_command") or "").strip(),
         "confirm_command": str(payload.get("confirm_command") or "").strip(),
         "display_command": str(payload.get("display_command") or "").strip(),
+        "detail_short_command": str(payload.get("detail_short_command") or "").strip(),
+        "plan_short_command": str(payload.get("plan_short_command") or "").strip(),
+        "confirm_short_command": str(payload.get("confirm_short_command") or "").strip(),
     }
     summary.update(command_execution_policy(summary))
     return summary
@@ -1206,10 +1212,14 @@ def selftest_result():
             "auto_run_command": "先看详情",
             "confirm_command": "执行最佳",
             "display_command": "先看详情",
+            "detail_short_command": "详情",
+            "plan_short_command": "计划",
+            "confirm_short_command": "确认",
         },
     })
     explicit_summary = compact_command_summary(compact_explicit_policy_commands)
     check("compact_command_summary_preserves_explicit_auto_run_command", explicit_summary.get("auto_run_command") == "先看详情" and explicit_summary.get("confirm_command") == "执行最佳")
+    check("compact_command_summary_preserves_smart_short_commands", explicit_summary.get("detail_short_command") == "详情" and explicit_summary.get("plan_short_command") == "计划" and explicit_summary.get("confirm_short_command") == "确认")
     compact_clear = compact({
         "success": True,
         "data": {

@@ -4869,6 +4869,7 @@ class AgentResourceOfficer(_PluginBase):
         preferred_command = self._clean_text(best_candidate.get("next_command"))
         fallback_command = self._clean_text(best_candidate.get("detail_command"))
         detail_command = "先看详情" if best_candidate.get("choice") else ""
+        detail_short_command = "详情" if best_candidate.get("choice") else ""
         title = self._clean_text(best_candidate.get("title"))
         source_type = self._clean_text(best_candidate.get("source_type")).lower()
         score_value = self._safe_int(best_candidate.get("score"), 0)
@@ -4887,7 +4888,10 @@ class AgentResourceOfficer(_PluginBase):
                 "preferred_command": "",
                 "fallback_command": "",
                 "detail_command": "",
+                "detail_short_command": "",
                 "confirmation_prompt": "",
+                "plan_short_command": "",
+                "confirm_short_command": "",
                 "compact_commands": [],
                 "available_sources": available_sources or [],
                 "blocked_sources": blocked_sources or [],
@@ -4959,12 +4963,15 @@ class AgentResourceOfficer(_PluginBase):
             "preferred_command": preferred_command,
             "fallback_command": fallback_command,
             "detail_command": detail_command if best_candidate.get("choice") and not hard_risks else "",
+            "detail_short_command": detail_short_command if best_candidate.get("choice") and not hard_risks else "",
             "confirmation_prompt": confirmation_prompt,
             "plan_command": "计划最佳" if best_candidate.get("choice") and not hard_risks else "",
+            "plan_short_command": "计划" if best_candidate.get("choice") and not hard_risks else "",
             "execute_command": "执行最佳" if best_candidate.get("choice") and not hard_risks else "",
+            "confirm_short_command": "确认" if best_candidate.get("choice") and not hard_risks else "",
             "compact_commands": [
                 command
-                for command in [preferred_command, fallback_command, detail_command]
+                for command in [preferred_command, fallback_command, detail_short_command or detail_command]
                 if command
             ][:2],
             "command_policy": command_policy,
@@ -5586,6 +5593,9 @@ class AgentResourceOfficer(_PluginBase):
         fallback_command = self._clean_text(decision_summary.get("fallback_command"))
         plan_command = self._clean_text(decision_summary.get("plan_command"))
         execute_command = self._clean_text(decision_summary.get("execute_command"))
+        detail_short_command = self._clean_text(decision_summary.get("detail_short_command"))
+        plan_short_command = self._clean_text(decision_summary.get("plan_short_command"))
+        confirm_short_command = self._clean_text(decision_summary.get("confirm_short_command"))
         if action_name != "smart_resource_decision" and preferred_command:
             message_lines.append(f"建议先发：{preferred_command}")
         if action_name != "smart_resource_decision" and fallback_command and fallback_command != preferred_command:
@@ -5633,8 +5643,11 @@ class AgentResourceOfficer(_PluginBase):
                     for command in [
                         preferred_command,
                         fallback_command,
+                        detail_short_command,
                         plan_command,
+                        plan_short_command,
                         execute_command,
+                        confirm_short_command,
                         "继续推荐",
                         "换影巢",
                         "换盘搜",
