@@ -527,12 +527,17 @@ class AgentResourceOfficer(_PluginBase):
             return {"action": "execute_plan"}
         if kind not in ai_session_kinds:
             return {}
+        keyword = cls._clean_text(current_state.get("keyword"))
+        if keyword and compact in {"诊断", "本地诊断", "重新诊断", "看诊断"}:
+            return {"action": "mp_local_diagnose", "keyword": keyword}
+        if keyword and compact in {"入库状态", "看入库状态", "状态"}:
+            return {"action": "mp_ingest_status", "keyword": keyword}
         if compact in {"工作清单", "返回工作清单", "回工作清单"}:
-            return {"action": "ai_sample_worklist", "keyword": cls._clean_text(current_state.get("keyword"))}
+            return {"action": "ai_sample_worklist", "keyword": keyword}
         if compact in {"失败样本", "返回失败样本", "回失败样本"}:
-            return {"action": "ai_failed_samples", "keyword": cls._clean_text(current_state.get("keyword"))}
+            return {"action": "ai_failed_samples", "keyword": keyword}
         if compact in {"样本洞察", "洞察", "返回样本洞察", "回样本洞察"}:
-            return {"action": "ai_sample_insights", "keyword": cls._clean_text(current_state.get("keyword"))}
+            return {"action": "ai_sample_insights", "keyword": keyword}
         raw = cls._clean_text(value)
         replay_match = re.match(r"^\s*(重放|重识别|重跑)\s*(\d+)(?:\s+(.*))?$", raw)
         if replay_match:
@@ -6984,8 +6989,9 @@ class AgentResourceOfficer(_PluginBase):
             "mp_subscribe": "订阅后追踪",
             "cloud_write": "云盘落库追踪",
             "mp_diagnosis": "本地/PT 状态追踪",
+            "ai_reingest": "AI 二次识别重放追踪",
         }
-        return {
+        summary = {
             "category": category,
             "stage": self._clean_text(stage),
             "label": label_map.get(category, category or "后续追踪"),
@@ -7002,6 +7008,15 @@ class AgentResourceOfficer(_PluginBase):
             "next_actions": action_names[:4],
             "action_templates_count": len([item for item in (action_templates or []) if isinstance(item, dict)]),
         }
+        if category == "ai_reingest" and keyword:
+            summary.update({
+                "preferred_command": "诊断",
+                "fallback_command": "入库状态",
+                "compact_commands": ["诊断", "入库状态"],
+                "recommended_commands": ["诊断", "入库状态", "工作清单"],
+                "can_auto_run_preferred": True,
+            })
+        return summary
 
     @staticmethod
     def _format_followup_summary_lines(summary: Optional[Dict[str, Any]]) -> List[str]:

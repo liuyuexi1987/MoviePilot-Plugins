@@ -1141,6 +1141,20 @@ def main() -> int:
                 isinstance(ai_worklist_data.get("items"), list),
                 json.dumps(ai_worklist_data, ensure_ascii=False)[:240],
             )
+            ai_diagnose_short = route(base_url, api_key, sessions[4], "诊断")
+            ai_diagnose_short_data = assert_route_action("route_ai_session_diagnose_short", ai_diagnose_short, "mp_local_diagnose", require_success=False)
+            assert_ok(
+                "route_ai_session_diagnose_short_ok",
+                ai_diagnose_short_data.get("action") == "mp_local_diagnose",
+                json.dumps(ai_diagnose_short_data, ensure_ascii=False)[:240],
+            )
+            ai_ingest_short = route(base_url, api_key, sessions[4], "入库状态")
+            ai_ingest_short_data = assert_route_action("route_ai_session_ingest_short", ai_ingest_short, "mp_ingest_status", require_success=False)
+            assert_ok(
+                "route_ai_session_ingest_short_ok",
+                ai_ingest_short_data.get("action") == "mp_ingest_status",
+                json.dumps(ai_ingest_short_data, ensure_ascii=False)[:240],
+            )
 
             ai_insights = route(base_url, api_key, sessions[4], f"样本洞察 {args.keyword}")
             ai_insights_data = assert_route_action("route_ai_sample_insights", ai_insights, "ai_sample_insights", require_success=False)

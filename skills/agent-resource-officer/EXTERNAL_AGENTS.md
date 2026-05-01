@@ -118,6 +118,7 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
 - `route "重放样本 3" --summary-only`
 - 或在当前 AI 样本会话里直接发：`route "重放 3" --summary-only`
 - 计划生成后再发：`route "确认" --summary-only`
+- 重放后可直接发：`route "诊断" --summary-only`、`route "入库状态" --summary-only`
 
 这一步仍然遵守确认链：先生成待确认计划，再通过 `确认` 或 `执行计划 <plan_id>` 实际执行。
 
