@@ -405,6 +405,19 @@ def main() -> int:
             ),
             str(smart_search_plan_templates.get("message") or ""),
         )
+        smart_search_execute_templates = request_templates(base_url, api_key, "smart_search_execute")
+        smart_search_execute_templates_data = data(smart_search_execute_templates)
+        smart_search_execute_names = smart_search_execute_templates_data.get("selected_names") or []
+        assert_ok(
+            "smart_search_execute_request_templates",
+            bool(
+                smart_search_execute_templates.get("success")
+                and smart_search_execute_templates_data.get("ok")
+                and smart_search_execute_templates_data.get("selected_recipe") == "smart_search_execute"
+                and smart_search_execute_names == ["smart_search_execute", "preferences_get", "scoring_policy", "post_execute_followup"]
+            ),
+            str(smart_search_execute_templates.get("message") or ""),
+        )
         preferences_view = route(base_url, api_key, sessions[0], "偏好")
         preferences_view_data = assert_route_action("route_preferences_get", preferences_view, "preferences")
         assert_ok(

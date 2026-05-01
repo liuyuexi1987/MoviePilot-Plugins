@@ -213,6 +213,8 @@ class AgentResourceOfficer(_PluginBase):
     def _normalize_search_prefix(text: str) -> Tuple[str, str]:
         raw = str(text or "").strip()
         mappings = [
+            ("智能执行", "smart_execute"),
+            ("智能搜执行", "smart_execute"),
             ("智能计划", "smart_plan"),
             ("智能搜计划", "smart_plan"),
             ("智能搜索", "smart"),
@@ -346,6 +348,8 @@ class AgentResourceOfficer(_PluginBase):
     @staticmethod
     def _normalize_pick_action(value: Any) -> str:
         text = str(value or "").strip().lower()
+        if text in {"best_execute", "execute_best", "执行最佳", "最佳执行", "立即执行最佳", "直接执行最佳"}:
+            return "best_execute"
         if text in {"best_plan", "plan_best", "计划最佳", "最佳计划", "计划推荐", "推荐计划", "最优计划"}:
             return "best_plan"
         if text in {"detail", "details", "review", "详情", "审查"}:
@@ -4604,6 +4608,7 @@ class AgentResourceOfficer(_PluginBase):
             "preferred_command": preferred_command,
             "fallback_command": fallback_command,
             "plan_command": "计划最佳" if best_candidate.get("choice") and not hard_risks else "",
+            "execute_command": "执行最佳" if best_candidate.get("choice") and not hard_risks else "",
             "compact_commands": [command for command in [preferred_command, fallback_command] if command][:2],
             "recommended_agent_behavior": "show_only",
         }
@@ -4823,6 +4828,101 @@ class AgentResourceOfficer(_PluginBase):
         result["message"] = "\n".join(line for line in message_lines if line)
         return result
 
+    async def _assistant_execute_prepared_plan_result(
+        self,
+        request: Request,
+        *,
+        session: str,
+        cache_key: str,
+        plan_result: Dict[str, Any],
+        message_prefix: str = "",
+        extra_data: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        if not bool(plan_result.get("success")):
+            return plan_result
+        plan_data = dict(plan_result.get("data") or {})
+        plan_id = self._clean_text(plan_data.get("plan_id"))
+        if not plan_id:
+            return {
+                "success": False,
+                "message": "当前没有可执行的待确认计划，请先生成计划后再执行。",
+                "data": self._assistant_response_data(session=session, data={
+                    "action": "execute_plan",
+                    "ok": False,
+                    "error_code": "plan_not_found",
+                }),
+            }
+        execute_result = await self.api_assistant_plan_execute(
+            _JsonRequestShim(request, {
+                "session": session,
+                "session_id": cache_key,
+                "plan_id": plan_id,
+                "prefer_unexecuted": True,
+                "stop_on_error": True,
+                "include_raw_results": False,
+                "compact": False,
+                "apikey": self._extract_apikey(request, {}),
+            })
+        )
+        execute_data = dict(execute_result.get("data") or {})
+        for key in [
+            "source_type",
+            "best_candidate",
+            "decision_summary",
+            "sources_checked",
+            "score_summary",
+            "choice",
+            "smart_plan_auto_selected",
+        ]:
+            if key in plan_data:
+                execute_data[key] = plan_data.get(key)
+        if extra_data:
+            execute_data.update(dict(extra_data))
+        execute_result["data"] = execute_data
+        if message_prefix:
+            execute_result["message"] = "\n".join(
+                line for line in [message_prefix, self._clean_text(execute_result.get("message"))]
+                if line
+            ).strip()
+        return execute_result
+
+    async def _assistant_smart_best_execute_response(
+        self,
+        request: Request,
+        *,
+        session: str,
+        cache_key: str,
+        state: Optional[Dict[str, Any]] = None,
+        target_path: str = "",
+    ) -> Dict[str, Any]:
+        plan_result = self._assistant_smart_best_plan_response(
+            session=session,
+            cache_key=cache_key,
+            state=state,
+            target_path=target_path,
+        )
+        plan_data = dict(plan_result.get("data") or {})
+        best_candidate = plan_data.get("best_candidate") if isinstance(plan_data.get("best_candidate"), dict) else {}
+        source_type = self._clean_text(best_candidate.get("source_type")).lower()
+        choice = self._safe_int(best_candidate.get("choice"), 0)
+        score_value = self._safe_int(best_candidate.get("score"), 0)
+        title = self._clean_text(best_candidate.get("title"))
+        source_label = {"pansou": "盘搜", "hdhive": "影巢", "mp_pt": "MP/PT"}.get(source_type, source_type or "当前源")
+        prefix = "已根据智能搜索结果自动生成并执行当前首选计划"
+        if choice:
+            prefix += f"\n首选：{source_label} #{choice} | {score_value}分" + (f" | {title}" if title else "")
+        return await self._assistant_execute_prepared_plan_result(
+            request,
+            session=session,
+            cache_key=cache_key,
+            plan_result=plan_result,
+            message_prefix=prefix,
+            extra_data={
+                "smart_execute_auto_selected": True,
+                "source_type": source_type,
+            },
+        )
+
     async def _assistant_smart_resource_search(
         self,
         request: Request,
@@ -5038,12 +5138,15 @@ class AgentResourceOfficer(_PluginBase):
         preferred_command = self._clean_text(decision_summary.get("preferred_command"))
         fallback_command = self._clean_text(decision_summary.get("fallback_command"))
         plan_command = self._clean_text(decision_summary.get("plan_command"))
+        execute_command = self._clean_text(decision_summary.get("execute_command"))
         if preferred_command:
             message_lines.append(f"建议先发：{preferred_command}")
         if fallback_command and fallback_command != preferred_command:
             message_lines.append(f"备选：{fallback_command}")
         if plan_command and plan_command not in {preferred_command, fallback_command}:
             message_lines.append(f"如需直接生成待确认计划：{plan_command}")
+        if execute_command and execute_command not in {preferred_command, fallback_command, plan_command}:
+            message_lines.append(f"如需直接执行：{execute_command}")
 
         score_summary = {}
         active_source_type = self._clean_text(best_candidate.get("source_type")).lower()
@@ -5070,7 +5173,7 @@ class AgentResourceOfficer(_PluginBase):
                 "score_summary": score_summary,
                 "preference_status": self._assistant_preferences_status_brief(session=session),
                 "next_actions": [
-                    command for command in [preferred_command, fallback_command, plan_command, "跟进"] if self._clean_text(command)
+                    command for command in [preferred_command, fallback_command, plan_command, execute_command, "跟进"] if self._clean_text(command)
                 ],
             }),
         }
@@ -5108,6 +5211,46 @@ class AgentResourceOfficer(_PluginBase):
                 target_path=target_path,
             )
         return self._assistant_smart_best_plan_response(
+            session=session,
+            cache_key=cache_key,
+            target_path=target_path,
+        )
+
+    async def _assistant_smart_resource_execute(
+        self,
+        request: Request,
+        *,
+        keyword: str,
+        session: str,
+        cache_key: str,
+        media_type: str,
+        year: str,
+        source_order: Optional[List[str]] = None,
+        target_path: str = "",
+    ) -> Dict[str, Any]:
+        if keyword:
+            search_result = await self._assistant_smart_resource_search(
+                request,
+                keyword=keyword,
+                session=session,
+                cache_key=cache_key,
+                media_type=media_type,
+                year=year,
+                source_order=source_order,
+                target_path=target_path,
+            )
+            smart_state = self._load_session(cache_key) or {}
+            if not search_result.get("success") and not bool(((search_result.get("data") or {}).get("best_candidate") or {}).get("source_type")):
+                return search_result
+            return await self._assistant_smart_best_execute_response(
+                request,
+                session=session,
+                cache_key=cache_key,
+                state=smart_state,
+                target_path=target_path,
+            )
+        return await self._assistant_smart_best_execute_response(
+            request,
             session=session,
             cache_key=cache_key,
             target_path=target_path,
@@ -9590,6 +9733,7 @@ class AgentResourceOfficer(_PluginBase):
             "resolved_followup_action",
             "smart_mode",
             "smart_plan_auto_selected",
+            "smart_execute_auto_selected",
         ]:
             if key in data:
                 payload[key] = data.get(key)
@@ -10872,6 +11016,7 @@ class AgentResourceOfficer(_PluginBase):
                 "start_pansou_search",
                 "start_smart_resource_search",
                 "start_smart_resource_plan",
+                "start_smart_resource_execute",
                 "pick_pansou_result",
                 "start_hdhive_search",
                 "pick_hdhive_candidate",
@@ -11078,6 +11223,18 @@ class AgentResourceOfficer(_PluginBase):
                 "tool": "agent_resource_officer_run_workflow",
                 "tool_args": {"name": "smart_resource_plan", "keyword": "蜘蛛侠", "media_type": "auto", "session": "assistant", "compact": True},
                 "body": {"workflow": "smart_resource_plan", "keyword": "蜘蛛侠", "media_type": "auto", "session": "assistant", "compact": True},
+            },
+            "smart_search_execute": {
+                "description": "按用户偏好自动搜索当前首选并立即执行写入动作；仅在用户已明确要求直接执行时使用。",
+                "side_effect": "write",
+                "requires_confirmation": True,
+                "cache_scope": "session_cache",
+                "cache_ttl_seconds": 600,
+                "method": "POST",
+                "endpoint": "/api/v1/plugin/AgentResourceOfficer/assistant/workflow",
+                "tool": "agent_resource_officer_run_workflow",
+                "tool_args": {"name": "smart_resource_execute", "keyword": "蜘蛛侠", "media_type": "auto", "session": "assistant", "compact": True},
+                "body": {"workflow": "smart_resource_execute", "keyword": "蜘蛛侠", "media_type": "auto", "session": "assistant", "compact": True},
             },
             "mp_media_detail": {
                 "description": "使用 MoviePilot 原生识别确认片名、年份、类型和 TMDB/Douban/IMDB ID；适合搜索前消歧。",
@@ -11487,6 +11644,7 @@ class AgentResourceOfficer(_PluginBase):
             "preferences_onboarding": ["preferences_get", "scoring_policy", "preferences_save"],
             "smart_search": ["smart_search", "preferences_get", "scoring_policy"],
             "smart_search_plan": ["smart_search_plan", "preferences_get", "scoring_policy", "saved_plan_execute"],
+            "smart_search_execute": ["smart_search_execute", "preferences_get", "scoring_policy", "post_execute_followup"],
             "mp_pt_mainline": [
                 "mp_media_detail",
                 "mp_search",
@@ -11608,6 +11766,10 @@ class AgentResourceOfficer(_PluginBase):
             "smart-search-plan": "smart_search_plan",
             "smartplan": "smart_search_plan",
             "智能计划": "smart_search_plan",
+            "smart_search_execute": "smart_search_execute",
+            "smart-search-execute": "smart_search_execute",
+            "smartexecute": "smart_search_execute",
+            "智能执行": "smart_search_execute",
         }
         requested_recipe = self._clean_text(recipe)
         selected_recipe = recipe_aliases.get(requested_recipe, requested_recipe)
@@ -11956,6 +12118,11 @@ class AgentResourceOfficer(_PluginBase):
                 "name": "smart_search_plan",
                 "description": "统一搜索决策后，直接为当前首选生成待确认计划；仍需后续执行计划才会真正写入。",
                 "templates": recipe_templates_map["smart_search_plan"],
+            },
+            {
+                "name": "smart_search_execute",
+                "description": "统一搜索决策后，直接执行当前首选写入动作；只适用于用户明确要求立即执行的场景。",
+                "templates": recipe_templates_map["smart_search_execute"],
             },
             {
                 "name": "mp_pt_mainline",
@@ -12692,7 +12859,7 @@ class AgentResourceOfficer(_PluginBase):
         body = dict(body or {})
 
         mode = self._clean_text(body.get("mode"))
-        if mode in {"mp", "pansou", "hdhive", "smart", "smart_plan"}:
+        if mode in {"mp", "pansou", "hdhive", "smart", "smart_plan", "smart_execute"}:
             merged["mode"] = mode
         keyword = self._clean_text(body.get("keyword") or body.get("title"))
         if keyword:
@@ -15913,6 +16080,28 @@ class AgentResourceOfficer(_PluginBase):
                 target_path=target_path,
             ))
 
+        if mode == "smart_execute":
+            if not keyword and self._clean_text((state or {}).get("kind")) != "assistant_smart_search":
+                return finish({
+                    "success": False,
+                    "message": "用法：智能执行 片名；也可以先做“智能搜索 片名”，再回复“执行最佳”。",
+                    "data": self._assistant_response_data(session=session, data={
+                        "action": "smart_resource_execute",
+                        "ok": False,
+                        "error_code": "missing_keyword",
+                    }),
+                })
+            return finish(await self._assistant_smart_resource_execute(
+                request,
+                keyword=keyword,
+                session=session,
+                cache_key=cache_key,
+                media_type=media_type,
+                year=year,
+                source_order=source_order,
+                target_path=target_path,
+            ))
+
         if mode == "mp":
             if not keyword:
                 return finish({
@@ -16072,6 +16261,15 @@ class AgentResourceOfficer(_PluginBase):
         if name == "start_smart_resource_plan":
             route_payload.update({
                 "mode": "smart_plan",
+                "keyword": body.get("keyword"),
+                "media_type": body.get("media_type") or "auto",
+                "year": body.get("year"),
+                "source_order": body.get("source_order") if isinstance(body.get("source_order"), list) else None,
+            })
+            return await finish(self.api_assistant_route(_JsonRequestShim(request, route_payload)))
+        if name == "start_smart_resource_execute":
+            route_payload.update({
+                "mode": "smart_execute",
                 "keyword": body.get("keyword"),
                 "media_type": body.get("media_type") or "auto",
                 "year": body.get("year"),
@@ -16738,6 +16936,11 @@ class AgentResourceOfficer(_PluginBase):
                     "fields": ["session", "keyword", "media_type", "year", "source_order", "path", "compact"],
                 },
                 {
+                    "name": "smart_resource_execute",
+                    "description": "按偏好自动搜索当前首选，并立即执行对应写入动作；仅适用于用户已明确要求直接执行的场景。",
+                    "fields": ["session", "keyword", "media_type", "year", "source_order", "path", "compact"],
+                },
+                {
                     "name": "pansou_transfer",
                     "description": "按关键词盘搜并直接选择指定编号转存，choice 默认 1",
                     "fields": ["session", "keyword", "choice", "path", "compact"],
@@ -16931,6 +17134,16 @@ class AgentResourceOfficer(_PluginBase):
             source_order = body.get("source_order") if isinstance(body.get("source_order"), list) else []
             return [base({
                 "name": "start_smart_resource_plan",
+                "keyword": keyword,
+                "media_type": media_type,
+                "year": year,
+                "source_order": source_order,
+            })], ""
+
+        if workflow_name == "smart_resource_execute":
+            source_order = body.get("source_order") if isinstance(body.get("source_order"), list) else []
+            return [base({
+                "name": "start_smart_resource_execute",
                 "keyword": keyword,
                 "media_type": media_type,
                 "year": year,
@@ -17539,6 +17752,63 @@ class AgentResourceOfficer(_PluginBase):
                         "score_summary": self._score_summary([best], limit=1),
                     }),
                 })
+            if action == "best_execute":
+                best = self._best_scored_source_item(items)
+                if not best:
+                    return finish({
+                        "success": False,
+                        "message": "当前盘搜结果没有可评分条目，请先查看列表后再执行最佳。",
+                        "data": self._assistant_response_data(session=session, data={
+                            "action": "pansou_best_execute",
+                            "ok": False,
+                            "error_code": "best_item_not_found",
+                        }),
+                    })
+                index = self._safe_int(best.get("index"), 0)
+                selected = dict(best)
+                share_url = self._clean_text(selected.get("url"))
+                if not share_url:
+                    return {"success": False, "message": "当前盘搜首选缺少分享链接，无法执行最佳。"}
+                access_code = self._clean_text(selected.get("password"))
+                final_path = target_path or (
+                    self._p115_default_path if self._is_115_url(share_url) else self._quark_default_path
+                )
+                plan_result = self._save_assistant_pick_plan_response(
+                    workflow="pansou_best_execute",
+                    session=session,
+                    session_id=cache_key,
+                    actions=[{
+                        "name": "route_share",
+                        "session": session,
+                        "session_id": cache_key,
+                        "url": share_url,
+                        "access_code": access_code,
+                        "path": final_path,
+                    }],
+                    execute_body={
+                        "workflow": "pansou_best_execute",
+                        "session": session,
+                        "session_id": cache_key,
+                        "choice": index,
+                        "path": final_path,
+                    },
+                    message="盘搜最佳候选计划已生成",
+                    score_items=[selected],
+                    extra_data={
+                        "choice": index,
+                        "provider": "115" if self._is_115_url(share_url) else "quark" if self._is_quark_url(share_url) else selected.get("channel"),
+                        "target_path": final_path,
+                        "selected_item": selected,
+                    },
+                )
+                return finish(await self._assistant_execute_prepared_plan_result(
+                    request,
+                    session=session,
+                    cache_key=cache_key,
+                    plan_result=plan_result,
+                    message_prefix=f"已自动选择盘搜最佳候选并执行：#{index}",
+                    extra_data={"choice": index, "source_type": "pansou"},
+                ))
             if action == "best_plan":
                 best = self._best_scored_source_item(items)
                 if not best:
@@ -17649,7 +17919,7 @@ class AgentResourceOfficer(_PluginBase):
                     },
                 ))
             if action:
-                return {"success": False, "message": "盘搜结果当前只支持：选择 编号、计划选择 编号、选择 编号 详情、最佳片源、计划最佳。"}
+                return {"success": False, "message": "盘搜结果当前只支持：选择 编号、计划选择 编号、选择 编号 详情、最佳片源、计划最佳、执行最佳。"}
             if index <= 0:
                 return {"success": False, "message": "请选择有效序号，例如：选择 1"}
             if index > len(items):
@@ -17762,6 +18032,14 @@ class AgentResourceOfficer(_PluginBase):
             ))
 
         if kind == "assistant_smart_search":
+            if action == "best_execute":
+                return finish(await self._assistant_smart_best_execute_response(
+                    request,
+                    session=session,
+                    cache_key=cache_key,
+                    state=state,
+                    target_path=target_path,
+                ))
             if action == "best_plan":
                 return finish(self._assistant_smart_best_plan_response(
                     session=session,
@@ -17807,6 +18085,21 @@ class AgentResourceOfficer(_PluginBase):
                     session=session,
                     cache_key=cache_key,
                     preferences=preferences,
+                ))
+            if action == "best_execute":
+                preferences = self._normalize_assistant_preferences((self._assistant_preferences or {}).get(self._normalize_preference_key(session=session)))
+                plan_result = await self._assistant_mp_best_download_plan(
+                    session=session,
+                    cache_key=cache_key,
+                    preferences=preferences,
+                )
+                return finish(await self._assistant_execute_prepared_plan_result(
+                    request,
+                    session=session,
+                    cache_key=cache_key,
+                    plan_result=plan_result,
+                    message_prefix="已自动选择当前评分最高的 PT 候选并执行计划",
+                    extra_data={"source_type": "mp_pt"},
                 ))
             if action == "best_plan":
                 preferences = self._normalize_assistant_preferences((self._assistant_preferences or {}).get(self._normalize_preference_key(session=session)))
@@ -17879,6 +18172,8 @@ class AgentResourceOfficer(_PluginBase):
                     })
                 if action == "best":
                     return {"success": False, "message": "影巢候选影片阶段没有评分，不能用“最佳片源”；请先回复编号选择影片，进入资源列表后再用“最佳片源”。"}
+                if action == "best_execute":
+                    return {"success": False, "message": "影巢候选影片阶段还不能直接执行最佳；请先进入资源列表，或直接发送：智能执行 片名。"}
                 if action == "best_plan":
                     return {"success": False, "message": "影巢候选影片阶段还不能直接生成最佳计划；请先进入资源列表，或直接发送：智能计划 片名。"}
                 if action == "plan":
@@ -17947,6 +18242,57 @@ class AgentResourceOfficer(_PluginBase):
                         "score_summary": self._score_summary([best], limit=1),
                     }),
                 })
+            if action == "best_execute":
+                best = self._best_scored_source_item(resources)
+                if not best:
+                    return finish({
+                        "success": False,
+                        "message": "当前影巢资源没有可评分条目，请先查看列表后再执行最佳。",
+                        "data": self._assistant_response_data(session=session, data={
+                            "action": "hdhive_best_resource_execute",
+                            "ok": False,
+                            "error_code": "best_item_not_found",
+                        }),
+                    })
+                index = self._safe_int(best.get("index"), 0)
+                slug = self._clean_text(best.get("slug"))
+                if not slug:
+                    return {"success": False, "message": "当前影巢首选缺少 slug，无法执行最佳。"}
+                plan_result = self._save_assistant_pick_plan_response(
+                    workflow="hdhive_best_execute",
+                    session=session,
+                    session_id=cache_key,
+                    actions=[{
+                        "name": "unlock_hdhive_resource",
+                        "session": session,
+                        "session_id": cache_key,
+                        "slug": slug,
+                        "path": final_path,
+                        "resource": best,
+                    }],
+                    execute_body={
+                        "workflow": "hdhive_best_execute",
+                        "session": session,
+                        "session_id": cache_key,
+                        "choice": index,
+                        "path": final_path,
+                    },
+                    message="影巢最佳资源计划已生成",
+                    score_items=[best],
+                    extra_data={
+                        "choice": index,
+                        "target_path": final_path,
+                        "selected_resource": best,
+                    },
+                )
+                return finish(await self._assistant_execute_prepared_plan_result(
+                    request,
+                    session=session,
+                    cache_key=cache_key,
+                    plan_result=plan_result,
+                    message_prefix=f"已自动选择影巢最佳资源并执行：#{index}",
+                    extra_data={"choice": index, "source_type": "hdhive"},
+                ))
             if action == "best_plan":
                 best = self._best_scored_source_item(resources)
                 if not best:
@@ -18045,7 +18391,7 @@ class AgentResourceOfficer(_PluginBase):
                     },
                 ))
             if action:
-                return {"success": False, "message": "影巢资源阶段只支持：选择 编号、计划选择 编号、选择 编号 详情、最佳片源、计划最佳。"}
+                return {"success": False, "message": "影巢资源阶段只支持：选择 编号、计划选择 编号、选择 编号 详情、最佳片源、计划最佳、执行最佳。"}
             if index <= 0:
                 return {"success": False, "message": "请选择有效资源编号，例如：选择 1"}
             if index > len(resources):

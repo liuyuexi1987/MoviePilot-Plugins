@@ -56,6 +56,8 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
 - 或先读模板：`python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py templates --recipe smart_search --compact`
 - 如果你希望一步拿到待确认计划，用：`python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py route "智能计划 <片名>" --summary-only`
 - 或先读模板：`python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py templates --recipe smart_search_plan --compact`
+- 如果用户已经明确要求立即执行，用：`python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py route "智能执行 <片名>" --summary-only`
+- 或先读模板：`python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py templates --recipe smart_search_execute --compact`
 
 这条入口会统一按 `盘搜 -> 影巢 -> MP/PT` 搜索，并自动读取当前会话偏好里的：
 
@@ -67,8 +69,10 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
 如果已经跑过一次 `智能搜索`，外部智能体还可以直接在同一 session 里发：
 
 - `计划最佳`
+- `执行最佳`
 
 这会按当前首选自动生成待确认 `plan_id`，仍然需要后续 `执行计划` 才会真正写入。
+而 `执行最佳` / `智能执行` 会直接走写入链，只适用于用户已经明确要求立即执行的场景。
 
 三类入口都复用同一套 assistant 协议：
 

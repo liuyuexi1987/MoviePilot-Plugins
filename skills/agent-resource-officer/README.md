@@ -123,7 +123,9 @@ python3 scripts/aro_request.py recover
 python3 scripts/aro_request.py route "盘搜搜索 大君夫人"
 python3 scripts/aro_request.py route "智能搜索 蜘蛛侠"
 python3 scripts/aro_request.py route "智能计划 蜘蛛侠"
+python3 scripts/aro_request.py route "智能执行 蜘蛛侠"
 python3 scripts/aro_request.py route "计划最佳"
+python3 scripts/aro_request.py route "执行最佳"
 python3 scripts/aro_request.py pick 1
 ```
 
@@ -165,14 +167,17 @@ python3 scripts/aro_request.py pick 1
 
 - `python3 scripts/aro_request.py route "智能搜索 蜘蛛侠"`
 - `python3 scripts/aro_request.py route "智能计划 蜘蛛侠"`
+- `python3 scripts/aro_request.py route "智能执行 蜘蛛侠"`
 
 这条入口会先按偏好过滤可用源和可用云盘，再按默认顺序 `盘搜 -> 影巢 -> MP/PT` 做统一搜索决策；如果前面某一源已经给出足够高分、风险可控的候选，就不会继续无意义展开后面的源。
 
 如果你已经做过一次 `智能搜索`，也可以直接在当前会话里发：
 
 - `python3 scripts/aro_request.py route "计划最佳"`
+- `python3 scripts/aro_request.py route "执行最佳"`
 
 它会按当前智能搜索会话里的首选结果，直接生成待确认 `plan_id`，但不会立刻执行下载、解锁或转存。
+如果用户已经明确要求立即执行，再用 `智能执行` 或 `执行最佳`；这两个入口会直接走写入链。
 
 搜索类响应可能带有 `score_summary`，包含 `best` 和 `top_recommendations`。外部智能体应优先读取这个结构化摘要，而不是解析长文本；存在 `hard_risk_reasons` 时不要自动执行，`risk_reasons` 只作为确认前需要解释的提醒。
 
