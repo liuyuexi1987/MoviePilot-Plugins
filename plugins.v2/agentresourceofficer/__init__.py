@@ -18961,17 +18961,21 @@ class AgentResourceOfficer(_PluginBase):
                 if not isinstance(delegate_state, dict) or not delegate_state:
                     return {"success": False, "message": "智能搜索会话缺少可继续状态，请重新发送：智能搜索 片名"}
                 self._save_session(cache_key, delegate_state)
-                return finish(await self.api_assistant_pick(
-                    _JsonRequestShim(request, {
-                        "session": session,
-                        "session_id": cache_key,
-                        "choice": 0,
-                        "action": "best",
-                        "path": target_path,
-                        "compact": compact,
-                        "apikey": self._extract_apikey(request, body),
-                    })
-                ))
+                try:
+                    result = await self.api_assistant_pick(
+                        _JsonRequestShim(request, {
+                            "session": session,
+                            "session_id": cache_key,
+                            "choice": 0,
+                            "action": "best",
+                            "path": target_path,
+                            "compact": compact,
+                            "apikey": self._extract_apikey(request, body),
+                        })
+                    )
+                finally:
+                    self._save_session(cache_key, state)
+                return finish(result)
             source_states = state.get("source_states") if isinstance(state.get("source_states"), dict) else {}
             requested_mode = self._clean_text(body.get("mode") or body.get("search_mode")).lower()
             mode_aliases = {

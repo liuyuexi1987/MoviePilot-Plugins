@@ -766,6 +766,14 @@ def main() -> int:
                 isinstance(smart_decision_best_detail_data.get("score_summary"), dict),
                 json.dumps(smart_decision_best_detail_data, ensure_ascii=False)[:240],
             )
+            smart_decision_plan_after_detail = route(base_url, api_key, sessions[1], "计划")
+            smart_decision_plan_after_detail_data = assert_route_action("route_smart_decision_plan_after_detail", smart_decision_plan_after_detail, "workflow_plan")
+            assert_ok(
+                "route_smart_decision_plan_after_detail_has_plan",
+                bool(smart_decision_plan_after_detail_data.get("plan_id"))
+                and smart_decision_plan_after_detail_data.get("workflow") == "smart_resource_plan",
+                json.dumps(smart_decision_plan_after_detail_data, ensure_ascii=False)[:240],
+            )
             smart_shortcut_session = f"{sessions[1]}-shortcuts"
             assert_route_action(
                 "route_smart_decision_shortcuts_start",
