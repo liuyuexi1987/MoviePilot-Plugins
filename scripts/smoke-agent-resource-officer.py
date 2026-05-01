@@ -651,7 +651,7 @@ def main() -> int:
             assert_ok(
                 "route_smart_decision_command_policy",
                 (
-                    smart_decision_data.get("command_policy") == "wait_user_confirmation"
+                    smart_decision_data.get("command_policy") in {"wait_user_confirmation", "read_then_confirm_write"}
                     and smart_decision_data.get("preferred_requires_confirmation") is True
                     and smart_decision_data.get("can_auto_run_preferred") is False
                 )
@@ -665,6 +665,27 @@ def main() -> int:
                     "command_policy": smart_decision_data.get("command_policy"),
                     "preferred_requires_confirmation": smart_decision_data.get("preferred_requires_confirmation"),
                     "can_auto_run_preferred": smart_decision_data.get("can_auto_run_preferred"),
+                    "recommended_agent_behavior": smart_decision_data.get("recommended_agent_behavior"),
+                    "auto_run_command": smart_decision_data.get("auto_run_command"),
+                    "confirm_command": smart_decision_data.get("confirm_command"),
+                }, ensure_ascii=False)[:240],
+            )
+            assert_ok(
+                "route_smart_decision_explicit_execution_policy",
+                (
+                    smart_decision_data.get("recommended_agent_behavior") == "auto_continue_then_wait_confirmation"
+                    and smart_decision_data.get("auto_run_command") == "先看详情"
+                    and smart_decision_data.get("confirm_command") in {"计划最佳", "执行最佳"}
+                )
+                if smart_decision_preferred in {"计划最佳", "执行最佳"}
+                else (
+                    smart_decision_data.get("recommended_agent_behavior") in {"auto_continue", "show_only"}
+                ),
+                json.dumps({
+                    "preferred_command": smart_decision_preferred,
+                    "recommended_agent_behavior": smart_decision_data.get("recommended_agent_behavior"),
+                    "auto_run_command": smart_decision_data.get("auto_run_command"),
+                    "confirm_command": smart_decision_data.get("confirm_command"),
                 }, ensure_ascii=False)[:240],
             )
             smart_decision_switch = route(base_url, api_key, sessions[1], "换影巢")

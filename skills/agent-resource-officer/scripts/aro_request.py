@@ -437,6 +437,10 @@ def compact(data):
             "preferred_command",
             "fallback_command",
             "compact_commands",
+            "recommended_agent_behavior",
+            "auto_run_command",
+            "confirm_command",
+            "display_command",
         ]
         out = {key: data.get(key) for key in ["success", "message"] if key in data}
         for key in keys:
@@ -539,6 +543,10 @@ def compact_command_summary(output):
         "fallback_helper_command": helper_route_command(fallback_command or (compact_commands[1] if len(compact_commands) > 1 else ""), session=session, session_id=session_id),
         "requires_confirmation": write_effect == "write",
         "message_head": str(payload.get("message") or payload.get("message_head") or "").strip(),
+        "recommended_agent_behavior": str(payload.get("recommended_agent_behavior") or "").strip(),
+        "auto_run_command": str(payload.get("auto_run_command") or "").strip(),
+        "confirm_command": str(payload.get("confirm_command") or "").strip(),
+        "display_command": str(payload.get("display_command") or "").strip(),
     }
     summary.update(command_execution_policy(summary))
     return summary
@@ -546,6 +554,20 @@ def compact_command_summary(output):
 
 def command_execution_policy(summary):
     summary = summary if isinstance(summary, dict) else {}
+    explicit_behavior = str(summary.get("recommended_agent_behavior") or "").strip()
+    explicit_auto = str(summary.get("auto_run_command") or "").strip()
+    explicit_confirm = str(summary.get("confirm_command") or "").strip()
+    explicit_display = str(summary.get("display_command") or "").strip()
+    if explicit_behavior:
+        return {
+            "recommended_agent_behavior": explicit_behavior,
+            "auto_run_command": explicit_auto,
+            "confirm_command": explicit_confirm,
+            "display_command": explicit_display or explicit_auto or explicit_confirm,
+            "stop_after_auto": explicit_behavior == "auto_continue_then_wait_confirmation",
+            "reason": "优先使用服务端返回的执行策略。",
+            "execution_reason": "优先使用服务端返回的执行策略。",
+        }
     preferred_command = str(summary.get("preferred_command") or "").strip()
     fallback_command = str(summary.get("fallback_command") or "").strip()
     preferred_requires_confirmation = bool(summary.get("preferred_requires_confirmation"))
@@ -1021,6 +1043,13 @@ def selftest_result():
     }
     top_level_policy = command_execution_policy(top_level_policy_summary)
     check("command_execution_policy_auto_continue_then_wait", top_level_policy.get("recommended_agent_behavior") == "auto_continue_then_wait_confirmation")
+    explicit_top_level_policy = command_execution_policy({
+        "recommended_agent_behavior": "auto_continue_then_wait_confirmation",
+        "auto_run_command": "先看详情",
+        "confirm_command": "执行最佳",
+        "display_command": "先看详情",
+    })
+    check("command_execution_policy_prefers_explicit_server_policy", explicit_top_level_policy.get("auto_run_command") == "先看详情" and explicit_top_level_policy.get("confirm_command") == "执行最佳")
     confirm_only_policy = command_execution_policy({
         "preferred_requires_confirmation": True,
         "preferred_command": "下载1",
@@ -1136,6 +1165,26 @@ def selftest_result():
     check("compact_command_summary_preserves_confirmation_flags", top_level_summary.get("fallback_requires_confirmation") is True and top_level_summary.get("can_auto_run_preferred") is True)
     check("compact_command_summary_builds_helper_command", top_level_summary.get("preferred_helper_command") == "python3 scripts/aro_request.py route '选择 1'")
     check("compact_command_summary_includes_execution_policy", top_level_summary.get("recommended_agent_behavior") == "auto_continue_then_wait_confirmation" and top_level_summary.get("auto_run_command") == "选择 1")
+    compact_explicit_policy_commands = compact({
+        "success": True,
+        "data": {
+            "action": "smart_resource_decision",
+            "command_source": "decision_summary",
+            "command_policy": "read_then_confirm_write",
+            "preferred_requires_confirmation": True,
+            "fallback_requires_confirmation": True,
+            "can_auto_run_preferred": False,
+            "preferred_command": "执行最佳",
+            "fallback_command": "计划最佳",
+            "compact_commands": ["执行最佳", "计划最佳"],
+            "recommended_agent_behavior": "auto_continue_then_wait_confirmation",
+            "auto_run_command": "先看详情",
+            "confirm_command": "执行最佳",
+            "display_command": "先看详情",
+        },
+    })
+    explicit_summary = compact_command_summary(compact_explicit_policy_commands)
+    check("compact_command_summary_preserves_explicit_auto_run_command", explicit_summary.get("auto_run_command") == "先看详情" and explicit_summary.get("confirm_command") == "执行最佳")
     compact_clear = compact({
         "success": True,
         "data": {

@@ -4868,16 +4868,27 @@ class AgentResourceOfficer(_PluginBase):
             confirmation_prompt = "先看详情；如果仍要继续，回复：先计划 或 换影巢 / 换盘搜 / 换PT。"
         if title:
             hint = f"{hint} {title}"
+        auto_run_command = ""
+        confirm_command = ""
+        display_command = preferred_command or detail_command
         preferred_requires_confirmation = preferred_command in write_intent_commands
         fallback_requires_confirmation = fallback_command in write_intent_commands
         if preferred_requires_confirmation:
-            command_policy = "wait_user_confirmation"
+            confirm_command = preferred_command
+            if detail_command and detail_command != preferred_command:
+                command_policy = "read_then_confirm_write"
+                auto_run_command = detail_command
+                display_command = detail_command
+                recommended_agent_behavior = "auto_continue_then_wait_confirmation"
+            else:
+                command_policy = "wait_user_confirmation"
+                recommended_agent_behavior = "wait_user_confirmation"
             can_auto_run_preferred = False
-            recommended_agent_behavior = "wait_user_confirmation"
         else:
             command_policy = "safe_read_only"
             can_auto_run_preferred = bool(preferred_command)
             recommended_agent_behavior = "show_only" if decision_mode == "not_recommended" else "auto_continue"
+            display_command = preferred_command or detail_command
         return {
             "checked_sources": [self._clean_text(item.get("source_type")) for item in checked if self._clean_text(item.get("source_type"))],
             "threshold": threshold,
@@ -4903,6 +4914,9 @@ class AgentResourceOfficer(_PluginBase):
             "preferred_requires_confirmation": preferred_requires_confirmation,
             "fallback_requires_confirmation": fallback_requires_confirmation,
             "can_auto_run_preferred": can_auto_run_preferred,
+            "auto_run_command": auto_run_command,
+            "confirm_command": confirm_command,
+            "display_command": display_command,
             "available_sources": available_sources or [],
             "blocked_sources": blocked_sources or [],
             "confirm_required": confirm_required,
@@ -10116,6 +10130,10 @@ class AgentResourceOfficer(_PluginBase):
                     "preferred_command": preferred_command or (compact_commands[0] if compact_commands else ""),
                     "fallback_command": fallback_command or (compact_commands[1] if len(compact_commands) > 1 else ""),
                     "compact_commands": compact_commands[:2],
+                    "recommended_agent_behavior": AgentResourceOfficer._clean_text(summary.get("recommended_agent_behavior")),
+                    "auto_run_command": AgentResourceOfficer._clean_text(summary.get("auto_run_command")),
+                    "confirm_command": AgentResourceOfficer._clean_text(summary.get("confirm_command")),
+                    "display_command": AgentResourceOfficer._clean_text(summary.get("display_command")),
                 }
         return {}
 
