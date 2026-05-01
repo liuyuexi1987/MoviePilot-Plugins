@@ -213,6 +213,8 @@ class AgentResourceOfficer(_PluginBase):
     def _normalize_search_prefix(text: str) -> Tuple[str, str]:
         raw = str(text or "").strip()
         mappings = [
+            ("资源决策", "smart_decision"),
+            ("智能决策", "smart_decision"),
             ("智能执行", "smart_execute"),
             ("智能搜执行", "smart_execute"),
             ("智能计划", "smart_plan"),
@@ -348,6 +350,18 @@ class AgentResourceOfficer(_PluginBase):
     @staticmethod
     def _normalize_pick_action(value: Any) -> str:
         text = str(value or "").strip().lower()
+        if text in {"继续推荐", "继续决策", "继续资源决策", "decision_continue"}:
+            return "decision_continue"
+        if text in {"换影巢", "切换影巢", "走影巢", "用影巢", "decision_hdhive"}:
+            return "decision_hdhive"
+        if text in {"换盘搜", "切换盘搜", "走盘搜", "用盘搜", "decision_pansou"}:
+            return "decision_pansou"
+        if text in {"换pt", "换原生", "换mp", "切换pt", "切换原生", "切换mp", "走pt", "走原生", "走mp", "decision_mp_pt"}:
+            return "decision_mp_pt"
+        if text in {"保守一点", "更保守", "保守模式", "decision_conservative"}:
+            return "decision_conservative"
+        if text in {"激进一点", "更激进", "激进模式", "decision_aggressive"}:
+            return "decision_aggressive"
         if text in {"best_execute", "execute_best", "执行最佳", "最佳执行", "立即执行最佳", "直接执行最佳"}:
             return "best_execute"
         if text in {"best_plan", "plan_best", "计划最佳", "最佳计划", "计划推荐", "推荐计划", "最优计划"}:
@@ -3166,6 +3180,67 @@ class AgentResourceOfficer(_PluginBase):
                 normalized.append(item)
         return normalized
 
+    def _assistant_smart_source_availability(
+        self,
+        preferences: Optional[Dict[str, Any]],
+        *,
+        source_order: Optional[List[str]] = None,
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        prefs = self._normalize_assistant_preferences(preferences)
+        available_cloud = self._assistant_available_cloud_providers(prefs)
+        order = self._assistant_smart_search_source_order(prefs, source_order=source_order)
+        source_labels = {
+            "pansou": "盘搜",
+            "hdhive": "影巢",
+            "mp_pt": "MP/PT",
+        }
+        available: List[Dict[str, Any]] = []
+        blocked: List[Dict[str, Any]] = []
+        for source in ["pansou", "hdhive", "mp_pt"]:
+            entry = {
+                "source_type": source,
+                "label": source_labels[source],
+            }
+            if source not in order:
+                if not self._assistant_source_enabled(prefs, source):
+                    blocked.append({**entry, "reason": f"当前偏好已关闭{source_labels[source]}"})
+                else:
+                    blocked.append({**entry, "reason": "当前决策顺序未包含该源"})
+                continue
+            if source in {"pansou", "hdhive"} and not available_cloud:
+                blocked.append({**entry, "reason": "当前偏好未启用任何云盘"})
+                continue
+            available.append({
+                **entry,
+                "provider_scope": list(available_cloud) if source in {"pansou", "hdhive"} else ["pt"],
+            })
+        if "115" not in available_cloud:
+            blocked.append({"source_type": "115", "label": "115", "reason": "当前偏好未启用 115"})
+        if "quark" not in available_cloud:
+            blocked.append({"source_type": "quark", "label": "夸克", "reason": "当前偏好未启用夸克"})
+        return available, blocked
+
+    def _assistant_smart_decision_preferences(
+        self,
+        preferences: Optional[Dict[str, Any]],
+        *,
+        decision_profile: str = "",
+    ) -> Dict[str, Any]:
+        prefs = self._normalize_assistant_preferences(preferences)
+        profile = self._clean_text(decision_profile).lower()
+        if not profile:
+            return prefs
+        updated = dict(prefs)
+        confirm_threshold = self._safe_int(
+            updated.get("confirm_score_threshold"),
+            self._assistant_default_confirm_score_threshold,
+        )
+        if profile == "conservative":
+            updated["confirm_score_threshold"] = max(confirm_threshold, min(95, confirm_threshold + 10))
+        elif profile == "aggressive":
+            updated["confirm_score_threshold"] = max(40, min(100, confirm_threshold - 10))
+        return self._normalize_assistant_preferences(updated)
+
     def _parse_assistant_preferences_text(self, text: str) -> Dict[str, Any]:
         raw = self._clean_text(text)
         compact = re.sub(r"\s+", "", raw).lower()
@@ -4564,11 +4639,18 @@ class AgentResourceOfficer(_PluginBase):
         preferences: Dict[str, Any],
         checked: List[Dict[str, Any]],
         best_candidate: Dict[str, Any],
+        available_sources: Optional[List[Dict[str, Any]]] = None,
+        blocked_sources: Optional[List[Dict[str, Any]]] = None,
+        decision_profile: str = "",
     ) -> Dict[str, Any]:
         prefs = self._normalize_assistant_preferences(preferences)
         threshold = self._safe_int(
             prefs.get("confirm_score_threshold"),
             self._assistant_default_confirm_score_threshold,
+        )
+        auto_threshold = self._safe_int(
+            prefs.get("auto_ingest_score_threshold"),
+            self._assistant_default_auto_ingest_score_threshold,
         )
         source_names = {
             "pansou": "盘搜",
@@ -4581,37 +4663,118 @@ class AgentResourceOfficer(_PluginBase):
         source_type = self._clean_text(best_candidate.get("source_type")).lower()
         score_value = self._safe_int(best_candidate.get("score"), 0)
         hard_risks = [self._clean_text(value) for value in (best_candidate.get("hard_risk_reasons") or []) if self._clean_text(value)]
+        decision_mode = "show_detail"
+        confirm_required = False
+        decision_reason = ""
         if not best_candidate:
             return {
                 "checked_sources": [self._clean_text(item.get("source_type")) for item in checked if self._clean_text(item.get("source_type"))],
                 "decision_hint": "已按当前偏好尝试可用源，但没有找到符合条件的资源。",
+                "decision_mode": "not_recommended",
+                "decision_reason": "所有可用源都没有给出符合当前偏好的候选。",
                 "preferred_command": "",
                 "fallback_command": "",
                 "compact_commands": [],
+                "available_sources": available_sources or [],
+                "blocked_sources": blocked_sources or [],
+                "confirm_required": False,
+                "decision_profile": self._clean_text(decision_profile),
                 "recommended_agent_behavior": "show_only",
             }
         if hard_risks:
             hint = f"已检查 {' -> '.join(source_names.get(self._clean_text(item.get('source_type')).lower(), self._clean_text(item.get('source_type'))) for item in checked if self._clean_text(item.get('source_type')))}；当前最高分是{source_names.get(source_type, source_type)} #{best_candidate.get('choice')}，但存在硬风险。"
+            decision_mode = "not_recommended"
+            decision_reason = "当前最高分候选存在硬风险，不能作为直接推荐执行项。"
         elif score_value >= threshold:
             hint = f"已检查 {' -> '.join(source_names.get(self._clean_text(item.get('source_type')).lower(), self._clean_text(item.get('source_type'))) for item in checked if self._clean_text(item.get('source_type')))}；当前首选是{source_names.get(source_type, source_type)} #{best_candidate.get('choice')}（{score_value}分）。"
+            if score_value >= auto_threshold:
+                decision_mode = "execute_now"
+                decision_reason = "当前首选分数已达到高可信区间，可以作为立即执行首选，但写入仍需明确意图。"
+                preferred_command = "执行最佳"
+                fallback_command = "计划最佳"
+                confirm_required = True
+            else:
+                decision_mode = "make_plan"
+                decision_reason = "当前首选已达到建议确认阈值，优先生成待确认计划。"
+                preferred_command = "计划最佳"
+                fallback_command = "执行最佳"
+                confirm_required = True
         else:
             hint = f"已检查 {' -> '.join(source_names.get(self._clean_text(item.get('source_type')).lower(), self._clean_text(item.get('source_type'))) for item in checked if self._clean_text(item.get('source_type')))}；当前最佳候选是{source_names.get(source_type, source_type)} #{best_candidate.get('choice')}（{score_value}分），但还没达到优先阈值。"
+            decision_mode = "show_detail"
+            decision_reason = "当前最佳候选分数偏低，优先查看详情或尝试切换搜索源。"
+            preferred_command = fallback_command or preferred_command
+            fallback_command = "计划最佳" if best_candidate.get("choice") and not hard_risks else ""
         if title:
             hint = f"{hint} {title}"
         return {
             "checked_sources": [self._clean_text(item.get("source_type")) for item in checked if self._clean_text(item.get("source_type"))],
             "threshold": threshold,
+            "auto_ingest_score_threshold": auto_threshold,
             "preferred_source": source_type,
             "preferred_score": score_value,
             "preferred_title": title[:160],
             "decision_hint": hint.strip(),
+            "decision_mode": decision_mode,
+            "decision_reason": decision_reason or hint.strip(),
             "preferred_command": preferred_command,
             "fallback_command": fallback_command,
             "plan_command": "计划最佳" if best_candidate.get("choice") and not hard_risks else "",
             "execute_command": "执行最佳" if best_candidate.get("choice") and not hard_risks else "",
-            "compact_commands": [command for command in [preferred_command, fallback_command] if command][:2],
+            "compact_commands": [
+                command
+                for command in [preferred_command, fallback_command]
+                if command
+            ][:2],
+            "available_sources": available_sources or [],
+            "blocked_sources": blocked_sources or [],
+            "confirm_required": confirm_required,
+            "decision_profile": self._clean_text(decision_profile),
             "recommended_agent_behavior": "show_only",
         }
+
+    def _assistant_smart_decision_entry_message(
+        self,
+        *,
+        keyword: str,
+        decision_summary: Dict[str, Any],
+        available_sources: List[Dict[str, Any]],
+        blocked_sources: List[Dict[str, Any]],
+    ) -> str:
+        checked = decision_summary.get("checked_sources") or []
+        checked_text = " -> ".join(
+            {
+                "pansou": "盘搜",
+                "hdhive": "影巢",
+                "mp_pt": "MP/PT",
+            }.get(self._clean_text(item).lower(), self._clean_text(item))
+            for item in checked
+            if self._clean_text(item)
+        )
+        lines = [f"资源决策：{keyword}"]
+        if checked_text:
+            lines.append(f"已检查：{checked_text}")
+        if available_sources:
+            lines.append("可用源：" + " / ".join(self._clean_text(item.get("label")) for item in available_sources if self._clean_text(item.get("label"))))
+        if blocked_sources:
+            blocked_text = "；".join(
+                f"{self._clean_text(item.get('label'))}：{self._clean_text(item.get('reason'))}"
+                for item in blocked_sources[:3]
+                if self._clean_text(item.get("label")) and self._clean_text(item.get("reason"))
+            )
+            if blocked_text:
+                lines.append("已跳过：" + blocked_text)
+        if self._clean_text(decision_summary.get("decision_hint")):
+            lines.append(self._clean_text(decision_summary.get("decision_hint")))
+        if self._clean_text(decision_summary.get("decision_reason")):
+            lines.append("结论：" + self._clean_text(decision_summary.get("decision_reason")))
+        preferred_command = self._clean_text(decision_summary.get("preferred_command"))
+        fallback_command = self._clean_text(decision_summary.get("fallback_command"))
+        if preferred_command:
+            lines.append(f"首选：{preferred_command}")
+        if fallback_command and fallback_command != preferred_command:
+            lines.append(f"备选：{fallback_command}")
+        return "\n".join(line for line in lines if line).strip()
 
     def _assistant_smart_source_item_by_choice(
         self,
@@ -4934,18 +5097,30 @@ class AgentResourceOfficer(_PluginBase):
         year: str,
         source_order: Optional[List[str]] = None,
         target_path: str = "",
+        decision_profile: str = "",
+        action_name: str = "smart_resource_search",
     ) -> Dict[str, Any]:
-        preferences = self._assistant_preferences_for_session(session=session)
+        base_preferences = self._assistant_preferences_for_session(session=session)
+        preferences = self._assistant_smart_decision_preferences(
+            base_preferences,
+            decision_profile=decision_profile,
+        )
         search_order = self._assistant_smart_search_source_order(preferences, source_order=source_order)
+        available_sources, blocked_sources = self._assistant_smart_source_availability(
+            preferences,
+            source_order=source_order,
+        )
         if not search_order:
             return {
                 "success": False,
                 "message": "当前偏好把盘搜、影巢、MP/PT 都关闭了，请先保存偏好后再试。",
                 "data": self._assistant_response_data(session=session, data={
-                    "action": "smart_resource_search",
+                    "action": action_name,
                     "ok": False,
                     "error_code": "no_enabled_sources",
                     "preference_status": self._assistant_preferences_status_brief(session=session),
+                    "available_sources": available_sources,
+                    "blocked_sources": blocked_sources,
                 }),
             }
 
@@ -5097,6 +5272,9 @@ class AgentResourceOfficer(_PluginBase):
             preferences=preferences,
             checked=checked,
             best_candidate=best_candidate,
+            available_sources=available_sources,
+            blocked_sources=blocked_sources,
+            decision_profile=decision_profile,
         )
         if active_state:
             smart_state = {
@@ -5113,39 +5291,54 @@ class AgentResourceOfficer(_PluginBase):
                 "best_candidate": best_candidate,
                 "alternatives": unique_alternatives[:6],
                 "decision_summary": decision_summary,
+                "available_sources": available_sources,
+                "blocked_sources": blocked_sources,
+                "source_order": search_order,
+                "decision_profile": self._clean_text(decision_profile),
+                "decision_entry": action_name,
             }
             self._save_session(cache_key, smart_state)
 
-        message_lines = [
-            f"智能搜索：{keyword}",
-            "已检查：" + " -> ".join(
-                {"pansou": "盘搜", "hdhive": "影巢", "mp_pt": "MP/PT"}.get(
-                    self._clean_text(item.get("source_type")).lower(),
-                    self._clean_text(item.get("source_type")),
+        if action_name == "smart_resource_decision":
+            message_lines = [
+                self._assistant_smart_decision_entry_message(
+                    keyword=keyword,
+                    decision_summary=decision_summary,
+                    available_sources=available_sources,
+                    blocked_sources=blocked_sources,
                 )
-                for item in checked
-                if self._clean_text(item.get("source_type"))
-            ),
-        ]
-        if best_candidate:
-            message_lines.append(decision_summary.get("decision_hint") or "")
-            if best_candidate.get("hard_risk_reasons"):
-                message_lines.append("降级原因：" + "；".join(best_candidate.get("hard_risk_reasons")[:2]))
-            elif best_candidate.get("risk_reasons") and self._safe_int(best_candidate.get("score"), 0) < threshold:
-                message_lines.append("继续原因：" + "；".join(best_candidate.get("risk_reasons")[:2]))
+            ]
         else:
-            message_lines.append("当前按偏好筛过可用源后，没有找到可推荐结果。")
+            message_lines = [
+                f"智能搜索：{keyword}",
+                "已检查：" + " -> ".join(
+                    {"pansou": "盘搜", "hdhive": "影巢", "mp_pt": "MP/PT"}.get(
+                        self._clean_text(item.get("source_type")).lower(),
+                        self._clean_text(item.get("source_type")),
+                    )
+                    for item in checked
+                    if self._clean_text(item.get("source_type"))
+                ),
+            ]
+            if best_candidate:
+                message_lines.append(decision_summary.get("decision_hint") or "")
+                if best_candidate.get("hard_risk_reasons"):
+                    message_lines.append("降级原因：" + "；".join(best_candidate.get("hard_risk_reasons")[:2]))
+                elif best_candidate.get("risk_reasons") and self._safe_int(best_candidate.get("score"), 0) < threshold:
+                    message_lines.append("继续原因：" + "；".join(best_candidate.get("risk_reasons")[:2]))
+            else:
+                message_lines.append("当前按偏好筛过可用源后，没有找到可推荐结果。")
         preferred_command = self._clean_text(decision_summary.get("preferred_command"))
         fallback_command = self._clean_text(decision_summary.get("fallback_command"))
         plan_command = self._clean_text(decision_summary.get("plan_command"))
         execute_command = self._clean_text(decision_summary.get("execute_command"))
-        if preferred_command:
+        if action_name != "smart_resource_decision" and preferred_command:
             message_lines.append(f"建议先发：{preferred_command}")
-        if fallback_command and fallback_command != preferred_command:
+        if action_name != "smart_resource_decision" and fallback_command and fallback_command != preferred_command:
             message_lines.append(f"备选：{fallback_command}")
-        if plan_command and plan_command not in {preferred_command, fallback_command}:
+        if action_name != "smart_resource_decision" and plan_command and plan_command not in {preferred_command, fallback_command}:
             message_lines.append(f"如需直接生成待确认计划：{plan_command}")
-        if execute_command and execute_command not in {preferred_command, fallback_command, plan_command}:
+        if action_name != "smart_resource_decision" and execute_command and execute_command not in {preferred_command, fallback_command, plan_command}:
             message_lines.append(f"如需直接执行：{execute_command}")
 
         score_summary = {}
@@ -5164,7 +5357,7 @@ class AgentResourceOfficer(_PluginBase):
             "success": True,
             "message": "\n".join(line for line in message_lines if line).strip(),
             "data": self._assistant_response_data(session=session, data={
-                "action": "smart_resource_search",
+                "action": action_name,
                 "ok": True,
                 "sources_checked": checked,
                 "best_candidate": best_candidate,
@@ -5172,11 +5365,118 @@ class AgentResourceOfficer(_PluginBase):
                 "decision_summary": decision_summary,
                 "score_summary": score_summary,
                 "preference_status": self._assistant_preferences_status_brief(session=session),
+                "available_sources": available_sources,
+                "blocked_sources": blocked_sources,
+                "decision_mode": self._clean_text(decision_summary.get("decision_mode")),
+                "decision_reason": self._clean_text(decision_summary.get("decision_reason")),
                 "next_actions": [
-                    command for command in [preferred_command, fallback_command, plan_command, execute_command, "跟进"] if self._clean_text(command)
+                    command
+                    for command in [
+                        preferred_command,
+                        fallback_command,
+                        plan_command,
+                        execute_command,
+                        "继续推荐",
+                        "换影巢",
+                        "换盘搜",
+                        "换PT",
+                        "保守一点",
+                        "激进一点",
+                        "跟进",
+                    ]
+                    if self._clean_text(command)
                 ],
             }),
         }
+
+    async def _assistant_smart_resource_decision(
+        self,
+        request: Request,
+        *,
+        keyword: str,
+        session: str,
+        cache_key: str,
+        media_type: str,
+        year: str,
+        source_order: Optional[List[str]] = None,
+        target_path: str = "",
+        decision_profile: str = "",
+    ) -> Dict[str, Any]:
+        return await self._assistant_smart_resource_search(
+            request,
+            keyword=keyword,
+            session=session,
+            cache_key=cache_key,
+            media_type=media_type,
+            year=year,
+            source_order=source_order,
+            target_path=target_path,
+            decision_profile=decision_profile,
+            action_name="smart_resource_decision",
+        )
+
+    async def _assistant_smart_resource_decision_adjust(
+        self,
+        request: Request,
+        *,
+        session: str,
+        cache_key: str,
+        state: Optional[Dict[str, Any]],
+        adjust_action: str,
+    ) -> Dict[str, Any]:
+        current_state = dict(state or self._load_session(cache_key) or {})
+        if self._clean_text(current_state.get("kind")) != "assistant_smart_search":
+            return {
+                "success": False,
+                "message": "当前没有可继续的资源决策会话，请先发送：资源决策 片名。",
+                "data": self._assistant_response_data(session=session, data={
+                    "action": "smart_resource_decision",
+                    "ok": False,
+                    "error_code": "smart_decision_session_not_found",
+                }),
+            }
+        keyword = self._clean_text(current_state.get("keyword"))
+        if not keyword:
+            return {
+                "success": False,
+                "message": "当前资源决策会话缺少片名，请重新发送：资源决策 片名。",
+                "data": self._assistant_response_data(session=session, data={
+                    "action": "smart_resource_decision",
+                    "ok": False,
+                    "error_code": "smart_decision_missing_keyword",
+                }),
+            }
+        media_type = self._clean_text(current_state.get("media_type") or "auto") or "auto"
+        year = self._clean_text(current_state.get("year"))
+        target_path = self._clean_text(current_state.get("target_path"))
+        source_order = list(current_state.get("source_order") or [])
+        if not source_order:
+            base_preferences = self._assistant_preferences_for_session(session=session)
+            source_order = self._assistant_smart_search_source_order(base_preferences)
+        decision_profile = self._clean_text(current_state.get("decision_profile"))
+        if adjust_action == "decision_hdhive":
+            source_order = ["hdhive", "pansou", "mp_pt"]
+        elif adjust_action == "decision_pansou":
+            source_order = ["pansou", "hdhive", "mp_pt"]
+        elif adjust_action == "decision_mp_pt":
+            source_order = ["mp_pt", "pansou", "hdhive"]
+        elif adjust_action == "decision_conservative":
+            decision_profile = "conservative"
+        elif adjust_action == "decision_aggressive":
+            decision_profile = "aggressive"
+        elif adjust_action == "decision_continue":
+            pass
+        return await self._assistant_smart_resource_decision(
+            request,
+            keyword=keyword,
+            session=session,
+            cache_key=cache_key,
+            media_type=media_type,
+            year=year,
+            source_order=source_order,
+            target_path=target_path,
+            decision_profile=decision_profile,
+        )
 
     async def _assistant_smart_resource_plan(
         self,
@@ -9466,8 +9766,11 @@ class AgentResourceOfficer(_PluginBase):
         for key in ["best_candidate"]:
             if isinstance(data.get(key), dict):
                 payload[key] = data.get(key)
-        for key in ["sources_checked", "alternatives"]:
+        for key in ["sources_checked", "alternatives", "available_sources", "blocked_sources"]:
             if isinstance(data.get(key), list):
+                payload[key] = data.get(key)
+        for key in ["decision_mode", "decision_reason"]:
+            if key in data:
                 payload[key] = data.get(key)
         command_summary = self._assistant_compact_command_summary(payload)
         if command_summary:
@@ -9656,10 +9959,10 @@ class AgentResourceOfficer(_PluginBase):
         for key in ["best_candidate"]:
             if isinstance(data.get(key), dict):
                 payload[key] = data.get(key)
-        for key in ["sources_checked", "alternatives"]:
+        for key in ["sources_checked", "alternatives", "available_sources", "blocked_sources"]:
             if isinstance(data.get(key), list):
                 payload[key] = data.get(key)
-        for key in ["recommended_action", "follow_up_hint", "resolved_followup_action", "smart_mode"]:
+        for key in ["recommended_action", "follow_up_hint", "resolved_followup_action", "smart_mode", "decision_mode", "decision_reason"]:
             if key in data:
                 payload[key] = data.get(key)
         pending_p115 = session_state.get("pending_p115") if isinstance(session_state.get("pending_p115"), dict) else {}
@@ -9734,13 +10037,15 @@ class AgentResourceOfficer(_PluginBase):
             "smart_mode",
             "smart_plan_auto_selected",
             "smart_execute_auto_selected",
+            "decision_mode",
+            "decision_reason",
         ]:
             if key in data:
                 payload[key] = data.get(key)
         for key in ["best_candidate"]:
             if isinstance(data.get(key), dict):
                 payload[key] = data.get(key)
-        for key in ["sources_checked", "alternatives"]:
+        for key in ["sources_checked", "alternatives", "available_sources", "blocked_sources"]:
             if isinstance(data.get(key), list):
                 payload[key] = data.get(key)
         if isinstance(data.get("preference_status"), dict):
@@ -9794,6 +10099,8 @@ class AgentResourceOfficer(_PluginBase):
             "decision_summary": data.get("decision_summary") or {},
             "best_candidate": data.get("best_candidate") or {},
             "sources_checked": data.get("sources_checked") or [],
+            "available_sources": data.get("available_sources") or [],
+            "blocked_sources": data.get("blocked_sources") or [],
             "smart_plan_auto_selected": bool(data.get("smart_plan_auto_selected")),
             "next_actions": ["execute_plan"] if plan_id else [],
             "action_templates": [template] if template else [],
@@ -11015,6 +11322,7 @@ class AgentResourceOfficer(_PluginBase):
             "actions": [
                 "start_pansou_search",
                 "start_smart_resource_search",
+                "start_smart_resource_decision",
                 "start_smart_resource_plan",
                 "start_smart_resource_execute",
                 "pick_pansou_result",
@@ -11211,6 +11519,18 @@ class AgentResourceOfficer(_PluginBase):
                 "tool": "agent_resource_officer_run_workflow",
                 "tool_args": {"name": "smart_resource_search", "keyword": "蜘蛛侠", "media_type": "auto", "session": "assistant", "compact": True},
                 "body": {"workflow": "smart_resource_search", "keyword": "蜘蛛侠", "media_type": "auto", "session": "assistant", "compact": True},
+            },
+            "smart_decision": {
+                "description": "按用户偏好统一执行盘搜 -> 影巢 -> MP/PT 决策，并给出查看详情、生成计划或直接执行的首选建议。",
+                "side_effect": "read_only",
+                "requires_confirmation": False,
+                "cache_scope": "session_cache",
+                "cache_ttl_seconds": 600,
+                "method": "POST",
+                "endpoint": "/api/v1/plugin/AgentResourceOfficer/assistant/workflow",
+                "tool": "agent_resource_officer_run_workflow",
+                "tool_args": {"name": "smart_resource_decision", "keyword": "蜘蛛侠", "media_type": "auto", "session": "assistant", "compact": True},
+                "body": {"workflow": "smart_resource_decision", "keyword": "蜘蛛侠", "media_type": "auto", "session": "assistant", "compact": True},
             },
             "smart_search_plan": {
                 "description": "按用户偏好自动搜索并为当前首选生成待确认 plan_id，不直接执行下载、解锁或转存。",
@@ -11643,6 +11963,7 @@ class AgentResourceOfficer(_PluginBase):
             "external_agent_quickstart": ["startup_probe", "route_text", "pick_continue"],
             "preferences_onboarding": ["preferences_get", "scoring_policy", "preferences_save"],
             "smart_search": ["smart_search", "preferences_get", "scoring_policy"],
+            "smart_decision": ["smart_decision", "preferences_get", "scoring_policy"],
             "smart_search_plan": ["smart_search_plan", "preferences_get", "scoring_policy", "saved_plan_execute"],
             "smart_search_execute": ["smart_search_execute", "preferences_get", "scoring_policy", "post_execute_followup"],
             "mp_pt_mainline": [
@@ -11762,6 +12083,11 @@ class AgentResourceOfficer(_PluginBase):
             "smart-search": "smart_search",
             "smart": "smart_search",
             "智能搜索": "smart_search",
+            "smart_decision": "smart_decision",
+            "smart-decision": "smart_decision",
+            "decision": "smart_decision",
+            "资源决策": "smart_decision",
+            "智能决策": "smart_decision",
             "smart_search_plan": "smart_search_plan",
             "smart-search-plan": "smart_search_plan",
             "smartplan": "smart_search_plan",
@@ -12113,6 +12439,11 @@ class AgentResourceOfficer(_PluginBase):
                 "name": "preferences_onboarding",
                 "description": "首次接入时先读取偏好、评分策略，再保存用户的片源偏好画像。",
                 "templates": recipe_templates_map["preferences_onboarding"],
+            },
+            {
+                "name": "smart_decision",
+                "description": "统一搜索并返回明确的下一步决策：查看详情、生成计划或直接执行。",
+                "templates": recipe_templates_map["smart_decision"],
             },
             {
                 "name": "smart_search_plan",
@@ -12859,7 +13190,7 @@ class AgentResourceOfficer(_PluginBase):
         body = dict(body or {})
 
         mode = self._clean_text(body.get("mode"))
-        if mode in {"mp", "pansou", "hdhive", "smart", "smart_plan", "smart_execute"}:
+        if mode in {"mp", "pansou", "hdhive", "smart", "smart_decision", "smart_plan", "smart_execute"}:
             merged["mode"] = mode
         keyword = self._clean_text(body.get("keyword") or body.get("title"))
         if keyword:
@@ -13125,6 +13456,14 @@ class AgentResourceOfficer(_PluginBase):
             options["keyword"] = ""
             options["is_gambler"] = "true"
         elif compact in {
+            "资源决策",
+            "智能决策",
+            "decision",
+            "smartdecision",
+        }:
+            options["mode"] = "smart_decision"
+            options["keyword"] = ""
+        elif compact in {
             "后续",
             "执行后追踪",
             "继续追踪",
@@ -13144,6 +13483,71 @@ class AgentResourceOfficer(_PluginBase):
             options["action"] = "smart_followup"
             options["mode"] = ""
             options["keyword"] = ""
+        elif compact in {
+            "继续推荐",
+            "继续决策",
+            "继续资源决策",
+            "decisioncontinue",
+        }:
+            options["action"] = "smart_decision_adjust"
+            options["mode"] = ""
+            options["keyword"] = ""
+            options["decision_adjust"] = "decision_continue"
+        elif compact in {
+            "换影巢",
+            "切换影巢",
+            "走影巢",
+            "用影巢",
+            "decisionhdhive",
+        }:
+            options["action"] = "smart_decision_adjust"
+            options["mode"] = ""
+            options["keyword"] = ""
+            options["decision_adjust"] = "decision_hdhive"
+        elif compact in {
+            "换盘搜",
+            "切换盘搜",
+            "走盘搜",
+            "用盘搜",
+            "decisionpansou",
+        }:
+            options["action"] = "smart_decision_adjust"
+            options["mode"] = ""
+            options["keyword"] = ""
+            options["decision_adjust"] = "decision_pansou"
+        elif compact in {
+            "换pt",
+            "换原生",
+            "换mp",
+            "切换pt",
+            "切换原生",
+            "切换mp",
+            "decisionmppt",
+        }:
+            options["action"] = "smart_decision_adjust"
+            options["mode"] = ""
+            options["keyword"] = ""
+            options["decision_adjust"] = "decision_mp_pt"
+        elif compact in {
+            "保守一点",
+            "更保守",
+            "保守模式",
+            "decisionconservative",
+        }:
+            options["action"] = "smart_decision_adjust"
+            options["mode"] = ""
+            options["keyword"] = ""
+            options["decision_adjust"] = "decision_conservative"
+        elif compact in {
+            "激进一点",
+            "更激进",
+            "激进模式",
+            "decisionaggressive",
+        }:
+            options["action"] = "smart_decision_adjust"
+            options["mode"] = ""
+            options["keyword"] = ""
+            options["decision_adjust"] = "decision_aggressive"
         elif compact in {
             "下载任务",
             "下载状态",
@@ -13369,6 +13773,11 @@ class AgentResourceOfficer(_PluginBase):
                     options["mode"] = ""
                     options["keyword"] = prefix_match[1]
             if not options.get("action"):
+                prefix_match = AgentResourceOfficer._match_command_prefix(raw, ["资源决策", "智能决策"])
+                if prefix_match:
+                    options["mode"] = "smart_decision"
+                    options["keyword"] = prefix_match[1]
+            if not options.get("action") and not options.get("mode"):
                 prefix_match = AgentResourceOfficer._match_command_prefix(raw, ["继续跟进", "查看进展", "跟进", "进展"])
                 if prefix_match:
                     options["action"] = "smart_followup"
@@ -15632,6 +16041,14 @@ class AgentResourceOfficer(_PluginBase):
                 hash_value=self._clean_text(body.get("hash") or body.get("hash_value") or parsed.get("hash")),
                 limit=self._safe_int(body.get("limit"), 5),
             ))
+        if assistant_action == "smart_decision_adjust":
+            return finish(await self._assistant_smart_resource_decision_adjust(
+                request,
+                session=session,
+                cache_key=cache_key,
+                state=state,
+                adjust_action=self._clean_text(parsed.get("decision_adjust") or body.get("decision_adjust") or "decision_continue"),
+            ))
         if assistant_action == "execution_followup":
             return finish(await self._assistant_execution_followup(
                 request,
@@ -16058,6 +16475,29 @@ class AgentResourceOfficer(_PluginBase):
                 target_path=target_path,
             ))
 
+        if mode == "smart_decision":
+            if not keyword:
+                return finish({
+                    "success": False,
+                    "message": "用法：资源决策 片名；也支持：智能决策 片名。",
+                    "data": self._assistant_response_data(session=session, data={
+                        "action": "smart_resource_decision",
+                        "ok": False,
+                        "error_code": "missing_keyword",
+                    }),
+                })
+            return finish(await self._assistant_smart_resource_decision(
+                request,
+                keyword=keyword,
+                session=session,
+                cache_key=cache_key,
+                media_type=media_type,
+                year=year,
+                source_order=source_order,
+                target_path=target_path,
+                decision_profile=self._clean_text(body.get("decision_profile") or parsed.get("decision_profile")),
+            ))
+
         if mode == "smart_plan":
             if not keyword and self._clean_text((state or {}).get("kind")) != "assistant_smart_search":
                 return finish({
@@ -16256,6 +16696,16 @@ class AgentResourceOfficer(_PluginBase):
                 "media_type": body.get("media_type") or "auto",
                 "year": body.get("year"),
                 "source_order": body.get("source_order") if isinstance(body.get("source_order"), list) else None,
+            })
+            return await finish(self.api_assistant_route(_JsonRequestShim(request, route_payload)))
+        if name == "start_smart_resource_decision":
+            route_payload.update({
+                "mode": "smart_decision",
+                "keyword": body.get("keyword"),
+                "media_type": body.get("media_type") or "auto",
+                "year": body.get("year"),
+                "source_order": body.get("source_order") if isinstance(body.get("source_order"), list) else None,
+                "decision_profile": body.get("decision_profile"),
             })
             return await finish(self.api_assistant_route(_JsonRequestShim(request, route_payload)))
         if name == "start_smart_resource_plan":
@@ -16931,6 +17381,11 @@ class AgentResourceOfficer(_PluginBase):
                     "fields": ["session", "keyword", "media_type", "year", "source_order", "path", "compact"],
                 },
                 {
+                    "name": "smart_resource_decision",
+                    "description": "按偏好自动执行盘搜 -> 影巢 -> MP/PT 搜索决策，并返回查看详情、生成计划或直接执行的统一建议。",
+                    "fields": ["session", "keyword", "media_type", "year", "source_order", "decision_profile", "path", "compact"],
+                },
+                {
                     "name": "smart_resource_plan",
                     "description": "按偏好自动执行盘搜 -> 影巢 -> MP/PT 搜索决策，并为当前首选生成待确认 plan_id",
                     "fields": ["session", "keyword", "media_type", "year", "source_order", "path", "compact"],
@@ -17128,6 +17583,19 @@ class AgentResourceOfficer(_PluginBase):
                 "media_type": media_type,
                 "year": year,
                 "source_order": source_order,
+            })], ""
+
+        if workflow_name == "smart_resource_decision":
+            if not keyword:
+                return [], "smart_resource_decision 缺少 keyword"
+            source_order = body.get("source_order") if isinstance(body.get("source_order"), list) else []
+            return [base({
+                "name": "start_smart_resource_decision",
+                "keyword": keyword,
+                "media_type": media_type,
+                "year": year,
+                "source_order": source_order,
+                "decision_profile": body.get("decision_profile"),
             })], ""
 
         if workflow_name == "smart_resource_plan":
@@ -18032,6 +18500,21 @@ class AgentResourceOfficer(_PluginBase):
             ))
 
         if kind == "assistant_smart_search":
+            if action in {
+                "decision_continue",
+                "decision_hdhive",
+                "decision_pansou",
+                "decision_mp_pt",
+                "decision_conservative",
+                "decision_aggressive",
+            }:
+                return finish(await self._assistant_smart_resource_decision_adjust(
+                    request,
+                    session=session,
+                    cache_key=cache_key,
+                    state=state,
+                    adjust_action=action,
+                ))
             if action == "best_execute":
                 return finish(await self._assistant_smart_best_execute_response(
                     request,

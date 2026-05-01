@@ -53,7 +53,9 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
 如果场景是“只给片名，让智能体自己比较多个来源”，优先使用统一搜索决策入口：
 
 - `route "智能搜索 <片名>" --summary-only`
+- `route "资源决策 <片名>" --summary-only`
 - 或者先读模板：`templates --recipe smart_search --compact`
+- 或先读模板：`templates --recipe smart_decision --compact`
 - 如果希望一步拿到待确认计划，用：`route "智能计划 <片名>" --summary-only`
 - 或先读模板：`templates --recipe smart_search_plan --compact`
 - 如果用户已经明确要求立即执行，用：`route "智能执行 <片名>" --summary-only`
@@ -70,6 +72,12 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
 
 - `计划最佳`
 - `执行最佳`
+- `继续推荐`
+- `换影巢`
+- `换盘搜`
+- `换PT`
+- `保守一点`
+- `激进一点`
 
 这会按当前首选自动生成待确认 `plan_id`，但仍然需要后续 `执行计划` 才会真正写入。
 而 `执行最佳` / `智能执行` 会直接走写入链，只适用于用户已经明确要求立即执行的场景。

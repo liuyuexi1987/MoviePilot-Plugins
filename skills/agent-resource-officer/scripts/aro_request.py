@@ -152,6 +152,7 @@ def external_agent_payload():
         "每个新会话先调用 startup 或 readiness；普通用户指令走 route；"
         "如果 preferences 未初始化，先询问并保存片源偏好；"
         "搜索某个具体片名时，优先用智能搜索统一决策，不要自己轮询盘搜、影巢和 MP/PT。"
+        "如果需要一步得到更明确的下一步建议，优先用资源决策。"
         "云盘和 PT 使用不同评分规则：云盘看质量/完整度/字幕/影巢积分，PT 看做种/促销/质量/字幕。"
         "编号选择走 pick；写入动作遵守 dry_run、plan_id、execute 的确认流程。"
         "route/pick/workflow/plan-execute/followup 返回 compact JSON 时，优先读取顶层 command_source、preferred_command、fallback_command、compact_commands 作为下一步。"
@@ -167,6 +168,8 @@ def external_agent_payload():
         "recipe_command": "python3 scripts/aro_request.py templates --recipe external_agent --compact",
         "preferences_recipe_command": "python3 scripts/aro_request.py templates --recipe preferences --compact",
         "smart_search_recipe_command": "python3 scripts/aro_request.py templates --recipe smart_search --compact",
+        "smart_decision_route_command": "python3 scripts/aro_request.py route '资源决策 <片名>' --session 'agent:<会话ID>' --summary-only",
+        "smart_decision_recipe_command": "python3 scripts/aro_request.py templates --recipe smart_decision --compact",
         "smart_search_plan_recipe_command": "python3 scripts/aro_request.py templates --recipe smart_search_plan --compact",
         "smart_search_execute_recipe_command": "python3 scripts/aro_request.py templates --recipe smart_search_execute --compact",
         "mp_pt_recipe_command": "python3 scripts/aro_request.py templates --recipe mp_pt --compact",
@@ -414,6 +417,10 @@ def compact(data):
             "decision_summary",
             "best_candidate",
             "sources_checked",
+            "available_sources",
+            "blocked_sources",
+            "decision_mode",
+            "decision_reason",
             "smart_plan_auto_selected",
             "smart_execute_auto_selected",
             "error_summary",
@@ -830,6 +837,8 @@ def recipe_helper_commands(recipe_summary, recipe_request):
         execute = "python3 scripts/aro_request.py workflow --workflow <workflow> --keyword <keyword>"
     elif first_template == "smart_search":
         execute = "python3 scripts/aro_request.py workflow --workflow smart_resource_search --keyword <keyword>"
+    elif first_template == "smart_decision":
+        execute = "python3 scripts/aro_request.py workflow --workflow smart_resource_decision --keyword <keyword>"
     elif first_template == "smart_search_plan":
         execute = "python3 scripts/aro_request.py workflow --workflow smart_resource_plan --keyword <keyword>"
     elif first_template == "smart_search_execute":
@@ -908,6 +917,8 @@ def selftest_result():
     check("workflow_dry_run_command", workflow_commands.get("execute_helper_command") == "python3 scripts/aro_request.py workflow --workflow <workflow> --keyword <keyword>")
     smart_search_commands = recipe_helper_commands({"first_template": "smart_search"}, "smart_search")
     check("smart_search_recipe_execute_command", smart_search_commands.get("execute_helper_command") == "python3 scripts/aro_request.py workflow --workflow smart_resource_search --keyword <keyword>")
+    smart_decision_commands = recipe_helper_commands({"first_template": "smart_decision"}, "smart_decision")
+    check("smart_decision_recipe_execute_command", smart_decision_commands.get("execute_helper_command") == "python3 scripts/aro_request.py workflow --workflow smart_resource_decision --keyword <keyword>")
     smart_search_plan_commands = recipe_helper_commands({"first_template": "smart_search_plan"}, "smart_search_plan")
     check("smart_search_plan_recipe_execute_command", smart_search_plan_commands.get("execute_helper_command") == "python3 scripts/aro_request.py workflow --workflow smart_resource_plan --keyword <keyword>")
     smart_search_execute_commands = recipe_helper_commands({"first_template": "smart_search_execute"}, "smart_search_execute")
@@ -1155,6 +1166,8 @@ def selftest_result():
     check("external_agent_payload_has_followup", bool(external_agent.get("followup_command")))
     check("external_agent_payload_has_preferences_recipe", bool(external_agent.get("preferences_recipe_command")))
     check("external_agent_payload_has_smart_search_recipe", bool(external_agent.get("smart_search_recipe_command")))
+    check("external_agent_payload_has_smart_decision_route", bool(external_agent.get("smart_decision_route_command")))
+    check("external_agent_payload_has_smart_decision_recipe", bool(external_agent.get("smart_decision_recipe_command")))
     check("external_agent_payload_has_smart_search_plan_recipe", bool(external_agent.get("smart_search_plan_recipe_command")))
     check("external_agent_payload_has_smart_search_execute_recipe", bool(external_agent.get("smart_search_execute_recipe_command")))
     check("external_agent_payload_has_mp_pt_recipe", bool(external_agent.get("mp_pt_recipe_command")))

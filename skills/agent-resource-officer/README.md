@@ -14,6 +14,7 @@
   - `python3 scripts/aro_request.py external-agent`
   - `python3 scripts/aro_request.py decide --summary-only`
   - `python3 scripts/aro_request.py route --text "智能搜索 蜘蛛侠" --summary-only`
+  - `python3 scripts/aro_request.py route --text "资源决策 蜘蛛侠" --summary-only`
 
 公开仓库：
 
@@ -122,6 +123,7 @@ python3 scripts/aro_request.py sessions-clear --has-pending-p115 --limit 10
 python3 scripts/aro_request.py recover
 python3 scripts/aro_request.py route "盘搜搜索 大君夫人"
 python3 scripts/aro_request.py route "智能搜索 蜘蛛侠"
+python3 scripts/aro_request.py route "资源决策 蜘蛛侠"
 python3 scripts/aro_request.py route "智能计划 蜘蛛侠"
 python3 scripts/aro_request.py route "智能执行 蜘蛛侠"
 python3 scripts/aro_request.py route "计划最佳"
@@ -166,6 +168,7 @@ python3 scripts/aro_request.py pick 1
 之后优先用 `智能搜索`：
 
 - `python3 scripts/aro_request.py route "智能搜索 蜘蛛侠"`
+- `python3 scripts/aro_request.py route "资源决策 蜘蛛侠"`
 - `python3 scripts/aro_request.py route "智能计划 蜘蛛侠"`
 - `python3 scripts/aro_request.py route "智能执行 蜘蛛侠"`
 
@@ -175,6 +178,12 @@ python3 scripts/aro_request.py pick 1
 
 - `python3 scripts/aro_request.py route "计划最佳"`
 - `python3 scripts/aro_request.py route "执行最佳"`
+- `python3 scripts/aro_request.py route "继续推荐"`
+- `python3 scripts/aro_request.py route "换影巢"`
+- `python3 scripts/aro_request.py route "换盘搜"`
+- `python3 scripts/aro_request.py route "换PT"`
+- `python3 scripts/aro_request.py route "保守一点"`
+- `python3 scripts/aro_request.py route "激进一点"`
 
 它会按当前智能搜索会话里的首选结果，直接生成待确认 `plan_id`，但不会立刻执行下载、解锁或转存。
 如果用户已经明确要求立即执行，再用 `智能执行` 或 `执行最佳`；这两个入口会直接走写入链。

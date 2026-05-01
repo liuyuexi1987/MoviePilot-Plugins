@@ -392,6 +392,19 @@ def main() -> int:
             ),
             str(smart_search_templates.get("message") or ""),
         )
+        smart_decision_templates = request_templates(base_url, api_key, "smart_decision")
+        smart_decision_templates_data = data(smart_decision_templates)
+        smart_decision_names = smart_decision_templates_data.get("selected_names") or []
+        assert_ok(
+            "smart_decision_request_templates",
+            bool(
+                smart_decision_templates.get("success")
+                and smart_decision_templates_data.get("ok")
+                and smart_decision_templates_data.get("selected_recipe") == "smart_decision"
+                and smart_decision_names == ["smart_decision", "preferences_get", "scoring_policy"]
+            ),
+            str(smart_decision_templates.get("message") or ""),
+        )
         smart_search_plan_templates = request_templates(base_url, api_key, "smart_search_plan")
         smart_search_plan_templates_data = data(smart_search_plan_templates)
         smart_search_plan_names = smart_search_plan_templates_data.get("selected_names") or []
@@ -618,6 +631,32 @@ def main() -> int:
                     and "has_quark" in ((smart_search_data.get("preference_status") or {}).get("summary") or {})
                 ),
                 json.dumps(smart_search_data.get("preference_status") or {}, ensure_ascii=False)[:240],
+            )
+            smart_decision = route(base_url, api_key, sessions[1], f"资源决策 {args.keyword}")
+            smart_decision_data = assert_route_action("route_smart_decision", smart_decision, "smart_resource_decision")
+            assert_ok(
+                "route_smart_decision_payload",
+                bool(smart_decision_data.get("decision_mode"))
+                and isinstance(smart_decision_data.get("available_sources"), list)
+                and isinstance(smart_decision_data.get("blocked_sources"), list)
+                and bool((smart_decision_data.get("decision_summary") or {}).get("preferred_command")),
+                json.dumps({
+                    "decision_mode": smart_decision_data.get("decision_mode"),
+                    "decision_summary": smart_decision_data.get("decision_summary"),
+                    "available_sources": smart_decision_data.get("available_sources"),
+                    "blocked_sources": smart_decision_data.get("blocked_sources"),
+                }, ensure_ascii=False)[:320],
+            )
+            smart_decision_switch = route(base_url, api_key, sessions[1], "换影巢")
+            smart_decision_switch_data = assert_route_action("route_smart_decision_switch_hdhive", smart_decision_switch, "smart_resource_decision")
+            assert_ok(
+                "route_smart_decision_switch_hdhive",
+                isinstance(smart_decision_switch_data.get("sources_checked"), list)
+                and bool(smart_decision_switch_data.get("decision_mode")),
+                json.dumps({
+                    "sources_checked": smart_decision_switch_data.get("sources_checked"),
+                    "decision_mode": smart_decision_switch_data.get("decision_mode"),
+                }, ensure_ascii=False)[:240],
             )
             smart_search_best_plan = route(base_url, api_key, sessions[1], "计划最佳")
             smart_search_best_plan_data = assert_route_action("route_smart_search_best_plan", smart_search_best_plan, "workflow_plan")
