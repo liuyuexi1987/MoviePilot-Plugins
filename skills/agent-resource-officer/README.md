@@ -189,6 +189,11 @@ python3 scripts/aro_request.py pick 1
 - `python3 scripts/aro_request.py route "换PT"`
 - `python3 scripts/aro_request.py route "保守一点"`
 - `python3 scripts/aro_request.py route "激进一点"`
+- `python3 scripts/aro_request.py route "只用夸克"`
+- `python3 scripts/aro_request.py route "只用115"`
+- `python3 scripts/aro_request.py route "只走PT"`
+- `python3 scripts/aro_request.py route "不用影巢"`
+- `python3 scripts/aro_request.py route "按保存偏好"`
 
 它会按当前智能搜索会话里的首选结果，直接生成待确认 `plan_id`，但不会立刻执行下载、解锁或转存。
 如果用户已经明确要求立即执行，再用 `智能执行` 或 `执行最佳`；这两个入口会直接走写入链。

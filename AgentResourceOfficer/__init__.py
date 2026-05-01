@@ -399,6 +399,26 @@ class AgentResourceOfficer(_PluginBase):
             return "decision_conservative"
         if text in {"激进一点", "更激进", "激进模式", "decision_aggressive"}:
             return "decision_aggressive"
+        if text in {"只用夸克", "只有夸克", "仅夸克", "只要夸克", "decision_only_quark"}:
+            return "decision_only_quark"
+        if text in {"只用115", "只有115", "仅115", "只要115", "decision_only_115"}:
+            return "decision_only_115"
+        if text in {"两者都可", "云盘都可", "115和夸克都可", "115夸克都可", "decision_cloud_both"}:
+            return "decision_cloud_both"
+        if text in {"只走pt", "只走原生", "只用pt", "只用原生", "只走mp", "只用mp", "decision_only_mp_pt"}:
+            return "decision_only_mp_pt"
+        if text in {"只走盘搜", "只用盘搜", "decision_only_pansou"}:
+            return "decision_only_pansou"
+        if text in {"只走影巢", "只用影巢", "decision_only_hdhive"}:
+            return "decision_only_hdhive"
+        if text in {"不用盘搜", "关闭盘搜", "禁用盘搜", "decision_disable_pansou"}:
+            return "decision_disable_pansou"
+        if text in {"不用影巢", "关闭影巢", "禁用影巢", "decision_disable_hdhive"}:
+            return "decision_disable_hdhive"
+        if text in {"不用pt", "不用原生", "关闭pt", "关闭原生", "关闭mp", "decision_disable_mp_pt"}:
+            return "decision_disable_mp_pt"
+        if text in {"按保存偏好", "恢复偏好", "恢复默认偏好", "清除会话偏好", "decision_reset_preferences"}:
+            return "decision_reset_preferences"
         if text in {"确认执行", "确认执行吧", "就执行吧", "直接来", "执行它", "确认处理", "确认转存", "确认解锁"}:
             return "best_execute"
         if text in {"先计划", "先做计划", "先生成计划", "先出计划", "还是先计划"}:
@@ -3284,6 +3304,95 @@ class AgentResourceOfficer(_PluginBase):
             updated["confirm_score_threshold"] = max(40, min(100, confirm_threshold - 10))
         return self._normalize_assistant_preferences(updated)
 
+    def _assistant_smart_session_overrides_summary(self, overrides: Optional[Dict[str, Any]]) -> str:
+        raw = dict(overrides or {})
+        if not raw:
+            return ""
+        payload = self._normalize_assistant_preferences(raw)
+        parts: List[str] = []
+        if "has_quark" in raw or "has_115" in raw:
+            if payload.get("has_quark") and not payload.get("has_115"):
+                parts.append("只用夸克")
+            elif payload.get("has_115") and not payload.get("has_quark"):
+                parts.append("只用115")
+            elif payload.get("has_115") and payload.get("has_quark"):
+                parts.append("115 / 夸克都可")
+        if "enable_pansou" in raw or "enable_hdhive" in raw or "enable_mp_pt" in raw:
+            enabled_sources: List[str] = []
+            if payload.get("enable_pansou"):
+                enabled_sources.append("盘搜")
+            if payload.get("enable_hdhive"):
+                enabled_sources.append("影巢")
+            if payload.get("enable_mp_pt"):
+                enabled_sources.append("MP/PT")
+            if enabled_sources:
+                parts.append("仅会话源：" + " / ".join(enabled_sources))
+        return "；".join(parts[:2])
+
+    def _assistant_smart_merge_session_preferences(
+        self,
+        preferences: Optional[Dict[str, Any]],
+        *,
+        session_overrides: Optional[Dict[str, Any]] = None,
+        decision_profile: str = "",
+    ) -> Dict[str, Any]:
+        merged = {
+            **self._normalize_assistant_preferences(preferences),
+            **dict(session_overrides or {}),
+        }
+        return self._assistant_smart_decision_preferences(
+            merged,
+            decision_profile=decision_profile,
+        )
+
+    def _assistant_smart_apply_session_override(
+        self,
+        session_overrides: Optional[Dict[str, Any]],
+        *,
+        adjust_action: str,
+        source_order: Optional[List[str]] = None,
+    ) -> Tuple[Dict[str, Any], List[str]]:
+        overrides = dict(session_overrides or {})
+        order = [self._clean_text(item).lower() for item in (source_order or []) if self._clean_text(item)]
+        normalized_action = self._clean_text(adjust_action).lower()
+        if normalized_action == "decision_only_quark":
+            overrides["has_quark"] = True
+            overrides["has_115"] = False
+            overrides["prefer_cloud_provider"] = "quark"
+        elif normalized_action == "decision_only_115":
+            overrides["has_quark"] = False
+            overrides["has_115"] = True
+            overrides["prefer_cloud_provider"] = "115"
+        elif normalized_action == "decision_cloud_both":
+            overrides["has_quark"] = True
+            overrides["has_115"] = True
+            overrides["prefer_cloud_provider"] = ""
+        elif normalized_action == "decision_only_mp_pt":
+            overrides["enable_pansou"] = False
+            overrides["enable_hdhive"] = False
+            overrides["enable_mp_pt"] = True
+            order = ["mp_pt"]
+        elif normalized_action == "decision_only_pansou":
+            overrides["enable_pansou"] = True
+            overrides["enable_hdhive"] = False
+            overrides["enable_mp_pt"] = False
+            order = ["pansou"]
+        elif normalized_action == "decision_only_hdhive":
+            overrides["enable_pansou"] = False
+            overrides["enable_hdhive"] = True
+            overrides["enable_mp_pt"] = False
+            order = ["hdhive"]
+        elif normalized_action == "decision_disable_pansou":
+            overrides["enable_pansou"] = False
+        elif normalized_action == "decision_disable_hdhive":
+            overrides["enable_hdhive"] = False
+        elif normalized_action == "decision_disable_mp_pt":
+            overrides["enable_mp_pt"] = False
+        elif normalized_action == "decision_reset_preferences":
+            overrides = {}
+            order = []
+        return overrides, order
+
     def _parse_assistant_preferences_text(self, text: str) -> Dict[str, Any]:
         raw = self._clean_text(text)
         compact = re.sub(r"\s+", "", raw).lower()
@@ -5154,11 +5263,13 @@ class AgentResourceOfficer(_PluginBase):
         source_order: Optional[List[str]] = None,
         target_path: str = "",
         decision_profile: str = "",
+        session_preference_overrides: Optional[Dict[str, Any]] = None,
         action_name: str = "smart_resource_search",
     ) -> Dict[str, Any]:
         base_preferences = self._assistant_preferences_for_session(session=session)
-        preferences = self._assistant_smart_decision_preferences(
+        preferences = self._assistant_smart_merge_session_preferences(
             base_preferences,
+            session_overrides=session_preference_overrides,
             decision_profile=decision_profile,
         )
         search_order = self._assistant_smart_search_source_order(preferences, source_order=source_order)
@@ -5352,6 +5463,7 @@ class AgentResourceOfficer(_PluginBase):
                 "source_order": search_order,
                 "decision_profile": self._clean_text(decision_profile),
                 "decision_entry": action_name,
+                "session_preference_overrides": dict(session_preference_overrides or {}),
             }
             self._save_session(cache_key, smart_state)
 
@@ -5396,6 +5508,9 @@ class AgentResourceOfficer(_PluginBase):
             message_lines.append(f"如需直接生成待确认计划：{plan_command}")
         if action_name != "smart_resource_decision" and execute_command and execute_command not in {preferred_command, fallback_command, plan_command}:
             message_lines.append(f"如需直接执行：{execute_command}")
+        override_summary = self._assistant_smart_session_overrides_summary(session_preference_overrides)
+        if override_summary:
+            message_lines.append("会话偏好：" + override_summary)
 
         score_summary = {}
         active_source_type = self._clean_text(best_candidate.get("source_type")).lower()
@@ -5421,6 +5536,8 @@ class AgentResourceOfficer(_PluginBase):
                 "decision_summary": decision_summary,
                 "score_summary": score_summary,
                 "preference_status": self._assistant_preferences_status_brief(session=session),
+                "effective_preferences": preferences,
+                "session_preference_overrides": dict(session_preference_overrides or {}),
                 "available_sources": available_sources,
                 "blocked_sources": blocked_sources,
                 "decision_mode": self._clean_text(decision_summary.get("decision_mode")),
@@ -5438,6 +5555,11 @@ class AgentResourceOfficer(_PluginBase):
                         "换PT",
                         "保守一点",
                         "激进一点",
+                        "只用夸克",
+                        "只用115",
+                        "只走PT",
+                        "不用影巢",
+                        "按保存偏好",
                         "跟进",
                     ]
                     if self._clean_text(command)
@@ -5457,6 +5579,7 @@ class AgentResourceOfficer(_PluginBase):
         source_order: Optional[List[str]] = None,
         target_path: str = "",
         decision_profile: str = "",
+        session_preference_overrides: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         return await self._assistant_smart_resource_search(
             request,
@@ -5468,6 +5591,7 @@ class AgentResourceOfficer(_PluginBase):
             source_order=source_order,
             target_path=target_path,
             decision_profile=decision_profile,
+            session_preference_overrides=session_preference_overrides,
             action_name="smart_resource_decision",
         )
 
@@ -5506,9 +5630,15 @@ class AgentResourceOfficer(_PluginBase):
         year = self._clean_text(current_state.get("year"))
         target_path = self._clean_text(current_state.get("target_path"))
         source_order = list(current_state.get("source_order") or [])
+        session_preference_overrides = dict(current_state.get("session_preference_overrides") or {})
         if not source_order:
             base_preferences = self._assistant_preferences_for_session(session=session)
-            source_order = self._assistant_smart_search_source_order(base_preferences)
+            source_order = self._assistant_smart_search_source_order(
+                self._assistant_smart_merge_session_preferences(
+                    base_preferences,
+                    session_overrides=session_preference_overrides,
+                )
+            )
         decision_profile = self._clean_text(current_state.get("decision_profile"))
         if adjust_action == "decision_hdhive":
             source_order = ["hdhive", "pansou", "mp_pt"]
@@ -5516,6 +5646,23 @@ class AgentResourceOfficer(_PluginBase):
             source_order = ["pansou", "hdhive", "mp_pt"]
         elif adjust_action == "decision_mp_pt":
             source_order = ["mp_pt", "pansou", "hdhive"]
+        elif adjust_action in {
+            "decision_only_quark",
+            "decision_only_115",
+            "decision_cloud_both",
+            "decision_only_mp_pt",
+            "decision_only_pansou",
+            "decision_only_hdhive",
+            "decision_disable_pansou",
+            "decision_disable_hdhive",
+            "decision_disable_mp_pt",
+            "decision_reset_preferences",
+        }:
+            session_preference_overrides, source_order = self._assistant_smart_apply_session_override(
+                session_preference_overrides,
+                adjust_action=adjust_action,
+                source_order=source_order,
+            )
         elif adjust_action == "decision_conservative":
             decision_profile = "conservative"
         elif adjust_action == "decision_aggressive":
@@ -5532,6 +5679,7 @@ class AgentResourceOfficer(_PluginBase):
             source_order=source_order,
             target_path=target_path,
             decision_profile=decision_profile,
+            session_preference_overrides=session_preference_overrides,
         )
 
     async def _assistant_smart_resource_plan(
@@ -5697,6 +5845,7 @@ class AgentResourceOfficer(_PluginBase):
             "source_order": source_order or current_state.get("source_order") or [],
             "decision_profile": self._clean_text(current_state.get("decision_profile") or ((data.get("decision_summary") or {}) if isinstance(data.get("decision_summary"), dict) else {}).get("decision_profile")),
             "decision_entry": self._clean_text(data.get("action") or current_state.get("decision_entry") or "smart_resource_search"),
+            "session_preference_overrides": data.get("session_preference_overrides") if isinstance(data.get("session_preference_overrides"), dict) else dict(current_state.get("session_preference_overrides") or {}),
         }
         self._save_session(cache_key, fallback_state)
         return fallback_state
@@ -10037,6 +10186,10 @@ class AgentResourceOfficer(_PluginBase):
             payload["diagnosis_summary"] = data.get("diagnosis_summary")
         if isinstance(data.get("followup_summary"), dict):
             payload["followup_summary"] = data.get("followup_summary")
+        if isinstance(data.get("effective_preferences"), dict):
+            payload["effective_preferences"] = data.get("effective_preferences")
+        if isinstance(data.get("session_preference_overrides"), dict):
+            payload["session_preference_overrides"] = data.get("session_preference_overrides")
         if isinstance(data.get("recovery"), dict):
             payload["recovery"] = data.get("recovery")
         command_summary = self._assistant_compact_command_summary(payload)
@@ -10096,6 +10249,10 @@ class AgentResourceOfficer(_PluginBase):
             payload["diagnosis_summary"] = data.get("diagnosis_summary")
         if isinstance(data.get("followup_summary"), dict):
             payload["followup_summary"] = data.get("followup_summary")
+        if isinstance(data.get("effective_preferences"), dict):
+            payload["effective_preferences"] = data.get("effective_preferences")
+        if isinstance(data.get("session_preference_overrides"), dict):
+            payload["session_preference_overrides"] = data.get("session_preference_overrides")
         if isinstance(data.get("decision_summary"), dict):
             payload["decision_summary"] = data.get("decision_summary")
         for key in ["download_tasks", "download_history", "transfer_history"]:
@@ -10165,6 +10322,10 @@ class AgentResourceOfficer(_PluginBase):
             payload["followup_summary"] = data.get("followup_summary")
         if isinstance(data.get("scoring_policy"), dict):
             payload["scoring_policy"] = data.get("scoring_policy")
+        if isinstance(data.get("effective_preferences"), dict):
+            payload["effective_preferences"] = data.get("effective_preferences")
+        if isinstance(data.get("session_preference_overrides"), dict):
+            payload["session_preference_overrides"] = data.get("session_preference_overrides")
         for key in ["download_tasks", "download_history", "transfer_history"]:
             if isinstance(data.get(key), dict):
                 payload[key] = data.get(key)
@@ -10246,6 +10407,8 @@ class AgentResourceOfficer(_PluginBase):
             "sources_checked": data.get("sources_checked") or [],
             "available_sources": data.get("available_sources") or [],
             "blocked_sources": data.get("blocked_sources") or [],
+            "effective_preferences": data.get("effective_preferences") or {},
+            "session_preference_overrides": data.get("session_preference_overrides") or {},
             "smart_plan_auto_selected": bool(data.get("smart_plan_auto_selected")),
             "next_actions": ["execute_plan"] if plan_id else [],
             "action_templates": [template] if template else [],
@@ -18703,6 +18866,16 @@ class AgentResourceOfficer(_PluginBase):
                 "decision_mp_pt",
                 "decision_conservative",
                 "decision_aggressive",
+                "decision_only_quark",
+                "decision_only_115",
+                "decision_cloud_both",
+                "decision_only_mp_pt",
+                "decision_only_pansou",
+                "decision_only_hdhive",
+                "decision_disable_pansou",
+                "decision_disable_hdhive",
+                "decision_disable_mp_pt",
+                "decision_reset_preferences",
             }:
                 return finish(await self._assistant_smart_resource_decision_adjust(
                     request,

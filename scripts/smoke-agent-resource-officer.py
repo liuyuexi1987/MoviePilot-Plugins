@@ -658,6 +658,50 @@ def main() -> int:
                     "decision_mode": smart_decision_switch_data.get("decision_mode"),
                 }, ensure_ascii=False)[:240],
             )
+            smart_pref_session = f"{sessions[1]}-prefs"
+            assert_route_action(
+                "route_smart_decision_pref_session_start",
+                route(base_url, api_key, smart_pref_session, f"资源决策 {args.keyword}"),
+                "smart_resource_decision",
+            )
+            smart_decision_only_quark = route(base_url, api_key, smart_pref_session, "只用夸克")
+            smart_decision_only_quark_data = assert_route_action("route_smart_decision_only_quark", smart_decision_only_quark, "smart_resource_decision")
+            assert_ok(
+                "route_smart_decision_only_quark_effective",
+                (
+                    isinstance(smart_decision_only_quark_data.get("session_preference_overrides"), dict)
+                    and (smart_decision_only_quark_data.get("session_preference_overrides") or {}).get("has_quark") is True
+                    and (smart_decision_only_quark_data.get("session_preference_overrides") or {}).get("has_115") is False
+                    and any(
+                        (item or {}).get("source_type") == "115"
+                        for item in (smart_decision_only_quark_data.get("blocked_sources") or [])
+                    )
+                ),
+                json.dumps(smart_decision_only_quark_data, ensure_ascii=False)[:320],
+            )
+            smart_decision_only_pt = route(base_url, api_key, smart_pref_session, "只走PT")
+            smart_decision_only_pt_data = assert_route_action("route_smart_decision_only_pt", smart_decision_only_pt, "smart_resource_decision")
+            assert_ok(
+                "route_smart_decision_only_pt_effective",
+                (
+                    [(item or {}).get("source_type") for item in (smart_decision_only_pt_data.get("available_sources") or [])] == ["mp_pt"]
+                    and any((item or {}).get("source_type") == "pansou" for item in (smart_decision_only_pt_data.get("blocked_sources") or []))
+                    and any((item or {}).get("source_type") == "hdhive" for item in (smart_decision_only_pt_data.get("blocked_sources") or []))
+                ),
+                json.dumps({
+                    "available_sources": smart_decision_only_pt_data.get("available_sources"),
+                    "blocked_sources": smart_decision_only_pt_data.get("blocked_sources"),
+                    "session_preference_overrides": smart_decision_only_pt_data.get("session_preference_overrides"),
+                }, ensure_ascii=False)[:320],
+            )
+            smart_decision_reset = route(base_url, api_key, smart_pref_session, "按保存偏好")
+            smart_decision_reset_data = assert_route_action("route_smart_decision_reset_preferences", smart_decision_reset, "smart_resource_decision")
+            assert_ok(
+                "route_smart_decision_reset_preferences_effective",
+                isinstance(smart_decision_reset_data.get("session_preference_overrides"), dict)
+                and not bool(smart_decision_reset_data.get("session_preference_overrides")),
+                json.dumps(smart_decision_reset_data.get("session_preference_overrides") or {}, ensure_ascii=False)[:240],
+            )
             smart_decision_plan = route(base_url, api_key, sessions[1], f"资源决策 {args.keyword} 计划")
             smart_decision_plan_data = assert_route_action("route_smart_decision_plan_intent", smart_decision_plan, "workflow_plan")
             assert_ok(
