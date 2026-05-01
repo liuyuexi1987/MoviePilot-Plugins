@@ -71,6 +71,10 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
     - `route "智能发现 热门电影 详情" --summary-only`
     - `route "智能发现 热门电影 计划" --summary-only`
     - `route "智能发现 热门电影 确认" --summary-only`
+  - 也支持单句直达具体来源：
+    - `route "智能发现 热门电影 盘搜" --summary-only`
+    - `route "智能发现 热门电影 影巢" --summary-only`
+    - `route "智能发现 热门电影 原生" --summary-only`
   - 也支持直接对当前榜单首项继续发：
     - `route "详情" --summary-only`
     - `route "计划" --summary-only`

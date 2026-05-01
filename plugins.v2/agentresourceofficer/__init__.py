@@ -8574,6 +8574,10 @@ class AgentResourceOfficer(_PluginBase):
                     "detail_short_command": "详情",
                     "plan_short_command": "计划",
                     "confirm_short_command": "确认",
+                    "decision_short_command": "决策",
+                    "pansou_short_command": "盘搜",
+                    "hdhive_short_command": "影巢",
+                    "mp_short_command": "原生",
                 })
             return {
                 "success": True,
@@ -8591,6 +8595,10 @@ class AgentResourceOfficer(_PluginBase):
                     "detail_short_command": "详情",
                     "plan_short_command": "计划",
                     "confirm_short_command": "确认",
+                    "decision_short_command": "决策",
+                    "pansou_short_command": "盘搜",
+                    "hdhive_short_command": "影巢",
+                    "mp_short_command": "原生",
                 }),
             }
         except Exception as exc:
@@ -8624,7 +8632,7 @@ class AgentResourceOfficer(_PluginBase):
         return {
             "decision_mode": "show_detail",
             "decision_reason": "推荐列表默认先看当前榜单首项详情，再决定是否生成计划或直接确认执行。",
-            "decision_hint": "当前推荐会话支持直接对首项继续：详情 / 计划 / 确认。",
+            "decision_hint": "当前推荐会话支持直接对首项继续：详情 / 决策 / 计划 / 确认，也支持切到盘搜 / 影巢 / 原生。",
             "preferred_command": "详情",
             "fallback_command": "计划",
             "compact_commands": ["详情", "计划"],
@@ -8634,8 +8642,12 @@ class AgentResourceOfficer(_PluginBase):
             "can_auto_run_preferred": True,
             "recommended_agent_behavior": "show_only",
             "detail_short_command": "详情",
+            "decision_short_command": "决策",
             "plan_short_command": "计划",
             "confirm_short_command": "确认",
+            "pansou_short_command": "盘搜",
+            "hdhive_short_command": "影巢",
+            "mp_short_command": "原生",
         }
 
     def _persist_workflow_plans(self) -> None:
@@ -11496,8 +11508,12 @@ class AgentResourceOfficer(_PluginBase):
                     "confirm_command": AgentResourceOfficer._clean_text(summary.get("confirm_command")),
                     "display_command": AgentResourceOfficer._clean_text(summary.get("display_command")),
                     "detail_short_command": AgentResourceOfficer._clean_text(summary.get("detail_short_command")),
+                    "decision_short_command": AgentResourceOfficer._clean_text(summary.get("decision_short_command")),
                     "plan_short_command": AgentResourceOfficer._clean_text(summary.get("plan_short_command")),
                     "confirm_short_command": AgentResourceOfficer._clean_text(summary.get("confirm_short_command")),
+                    "pansou_short_command": AgentResourceOfficer._clean_text(summary.get("pansou_short_command")),
+                    "hdhive_short_command": AgentResourceOfficer._clean_text(summary.get("hdhive_short_command")),
+                    "mp_short_command": AgentResourceOfficer._clean_text(summary.get("mp_short_command")),
                 }
         return {}
 
@@ -11669,8 +11685,12 @@ class AgentResourceOfficer(_PluginBase):
             "decision_mode",
             "decision_reason",
             "detail_short_command",
+            "decision_short_command",
             "plan_short_command",
             "confirm_short_command",
+            "pansou_short_command",
+            "hdhive_short_command",
+            "mp_short_command",
             "auto_run_command",
             "confirm_command",
             "display_command",
@@ -11839,8 +11859,12 @@ class AgentResourceOfficer(_PluginBase):
             "session_preference_overrides": data.get("session_preference_overrides") or {},
             "smart_plan_auto_selected": bool(data.get("smart_plan_auto_selected")),
             "detail_short_command": self._clean_text(((data.get("decision_summary") or {}) if isinstance(data.get("decision_summary"), dict) else {}).get("detail_short_command")),
+            "decision_short_command": self._clean_text(((data.get("decision_summary") or {}) if isinstance(data.get("decision_summary"), dict) else {}).get("decision_short_command")),
             "plan_short_command": self._clean_text(((data.get("decision_summary") or {}) if isinstance(data.get("decision_summary"), dict) else {}).get("plan_short_command")),
             "confirm_short_command": self._clean_text(((data.get("decision_summary") or {}) if isinstance(data.get("decision_summary"), dict) else {}).get("confirm_short_command")),
+            "pansou_short_command": self._clean_text(((data.get("decision_summary") or {}) if isinstance(data.get("decision_summary"), dict) else {}).get("pansou_short_command")),
+            "hdhive_short_command": self._clean_text(((data.get("decision_summary") or {}) if isinstance(data.get("decision_summary"), dict) else {}).get("hdhive_short_command")),
+            "mp_short_command": self._clean_text(((data.get("decision_summary") or {}) if isinstance(data.get("decision_summary"), dict) else {}).get("mp_short_command")),
             "next_actions": ["execute_plan"] if plan_id else [],
             "action_templates": [template] if template else [],
         }

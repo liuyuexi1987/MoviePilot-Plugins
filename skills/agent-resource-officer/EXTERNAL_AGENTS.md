@@ -276,6 +276,10 @@ python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py external-agen
   - `智能发现 热门电影 详情`
   - `智能发现 热门电影 计划`
   - `智能发现 热门电影 确认`
+- 也支持单句直达具体来源：
+  - `智能发现 热门电影 盘搜`
+  - `智能发现 热门电影 影巢`
+  - `智能发现 热门电影 原生`
 - 也支持直接对当前榜单首项继续发：
   - `详情`
   - `计划`

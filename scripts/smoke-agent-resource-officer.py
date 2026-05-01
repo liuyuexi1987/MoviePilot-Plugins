@@ -254,6 +254,9 @@ def main() -> int:
             f"smoke-aro-smart-discovery-direct-detail-{stamp}",
             f"smoke-aro-smart-discovery-direct-plan-{stamp}",
             f"smoke-aro-smart-discovery-direct-execute-{stamp}",
+            f"smoke-aro-smart-discovery-direct-pansou-{stamp}",
+            f"smoke-aro-smart-discovery-direct-hdhive-{stamp}",
+            f"smoke-aro-smart-discovery-direct-mp-{stamp}",
         ])
 
     try:
@@ -1411,6 +1414,14 @@ def main() -> int:
                 and smart_discovery_autoplan_data.get("fallback_command") == "计划",
                 json.dumps(smart_discovery_autoplan_data, ensure_ascii=False)[:240],
             )
+            assert_ok(
+                "route_smart_discovery_provider_shortcuts_payload",
+                smart_discovery_autoplan_data.get("decision_short_command") == "决策"
+                and smart_discovery_autoplan_data.get("pansou_short_command") == "盘搜"
+                and smart_discovery_autoplan_data.get("hdhive_short_command") == "影巢"
+                and smart_discovery_autoplan_data.get("mp_short_command") == "原生",
+                json.dumps(smart_discovery_autoplan_data, ensure_ascii=False)[:280],
+            )
             recommend_autoplan = route(base_url, api_key, sessions[16], "计划")
             recommend_autoplan_data = data(recommend_autoplan)
             assert_ok(
@@ -1463,6 +1474,22 @@ def main() -> int:
                 direct_discovery_execute_data.get("action") in {"smart_resource_execute", "execute_plan"}
                 and direct_discovery_execute_data.get("write_effect") == "write",
                 json.dumps(direct_discovery_execute, ensure_ascii=False)[:260],
+            )
+            direct_discovery_pansou = route(base_url, api_key, sessions[20], "智能发现 热门电影 盘搜")
+            direct_discovery_pansou_data = assert_route_action("route_smart_discovery_direct_pansou", direct_discovery_pansou, "pansou_search")
+            assert_ok(
+                "route_smart_discovery_direct_pansou_payload",
+                bool((direct_discovery_pansou_data.get("score_summary") or {}).get("best")),
+                json.dumps(direct_discovery_pansou_data, ensure_ascii=False)[:260],
+            )
+            direct_discovery_hdhive = route(base_url, api_key, sessions[21], "智能发现 热门电影 影巢")
+            assert_route_action("route_smart_discovery_direct_hdhive", direct_discovery_hdhive, "hdhive_candidates", require_success=False)
+            direct_discovery_mp = route(base_url, api_key, sessions[22], "智能发现 热门电影 原生")
+            direct_discovery_mp_data = assert_route_action("route_smart_discovery_direct_mp", direct_discovery_mp, "mp_media_search")
+            assert_ok(
+                "route_smart_discovery_direct_mp_payload",
+                isinstance((direct_discovery_mp_data.get("items") or []), list),
+                json.dumps(direct_discovery_mp_data, ensure_ascii=False)[:260],
             )
             tv_recommend = route(base_url, api_key, sessions[7], "热门电视剧")
             assert_route_action("route_recommend_tv", tv_recommend, "mp_recommendations")
