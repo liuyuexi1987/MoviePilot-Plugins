@@ -253,6 +253,8 @@ class AgentResourceOfficer(_PluginBase):
             return "", ""
         patterns = [
             ("execute_now", [
+                r"(?:直接|立即|马上|立刻)?确认执行$",
+                r"(?:直接|立即|马上|立刻)?确认$",
                 r"(?:直接|立即|马上|立刻)?执行$",
                 r"(?:直接|立即|马上|立刻)?下载$",
                 r"(?:直接|立即|马上|立刻)?转存$",
@@ -267,6 +269,7 @@ class AgentResourceOfficer(_PluginBase):
                 r"(?:先)?待确认计划$",
             ]),
             ("show_detail", [
+                r"详情$",
                 r"(?:先)?看详情$",
                 r"(?:先)?看一下$",
                 r"(?:先)?看看$",
@@ -282,6 +285,47 @@ class AgentResourceOfficer(_PluginBase):
                     cleaned = re.sub(token, "", compact, flags=re.IGNORECASE).strip()
                     return cleaned or raw, intent
         return raw, ""
+
+    async def _assistant_smart_decision_followup_detail(
+        self,
+        request,
+        *,
+        session: str,
+        cache_key: str,
+        keyword: str,
+        compact: bool = False,
+        apikey: str = "",
+        media_type: str = "",
+        year: str = "",
+        source_order: Optional[List[str]] = None,
+        target_path: str = "",
+        decision_profile: str = "",
+    ):
+        decision_result = await self._assistant_smart_resource_decision(
+            request,
+            keyword=keyword,
+            session=session,
+            cache_key=cache_key,
+            media_type=media_type,
+            year=year,
+            source_order=source_order,
+            target_path=target_path,
+            decision_profile=decision_profile,
+        )
+        state = self._load_session(cache_key)
+        if not isinstance(state, dict) or self._clean_text(state.get("kind")) != "assistant_smart_search":
+            return decision_result
+        return await self.api_assistant_pick(
+            _JsonRequestShim(request, {
+                "session": session,
+                "session_id": cache_key,
+                "choice": 0,
+                "action": "best",
+                "path": target_path,
+                "compact": compact,
+                "apikey": apikey,
+            })
+        )
 
     @staticmethod
     def _match_command_prefix(raw: str, prefixes: List[str]) -> Optional[Tuple[str, str]]:
@@ -16816,6 +16860,7 @@ class AgentResourceOfficer(_PluginBase):
         year = self._clean_text(parsed.get("year"))
         decision_intent = self._clean_text(parsed.get("decision_intent")).lower()
         source_order = body.get("source_order") if isinstance(body.get("source_order"), list) else None
+        apikey = self._extract_apikey(request, body)
 
         if mode == "smart":
             if not keyword:
@@ -16834,6 +16879,19 @@ class AgentResourceOfficer(_PluginBase):
                     keyword=keyword,
                     session=session,
                     cache_key=cache_key,
+                    media_type=media_type,
+                    year=year,
+                    source_order=source_order,
+                    target_path=target_path,
+                ))
+            if decision_intent == "show_detail":
+                return finish(await self._assistant_smart_decision_followup_detail(
+                    request,
+                    keyword=keyword,
+                    session=session,
+                    cache_key=cache_key,
+                    compact=compact,
+                    apikey=apikey,
                     media_type=media_type,
                     year=year,
                     source_order=source_order,
@@ -16882,6 +16940,20 @@ class AgentResourceOfficer(_PluginBase):
                     year=year,
                     source_order=source_order,
                     target_path=target_path,
+                ))
+            if decision_intent == "show_detail":
+                return finish(await self._assistant_smart_decision_followup_detail(
+                    request,
+                    keyword=keyword,
+                    session=session,
+                    cache_key=cache_key,
+                    compact=compact,
+                    apikey=apikey,
+                    media_type=media_type,
+                    year=year,
+                    source_order=source_order,
+                    target_path=target_path,
+                    decision_profile=self._clean_text(body.get("decision_profile") or parsed.get("decision_profile")),
                 ))
             if decision_intent == "execute_now":
                 return finish(await self._assistant_smart_resource_execute(

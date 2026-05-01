@@ -15,6 +15,7 @@
   - `python3 scripts/aro_request.py decide --summary-only`
   - `python3 scripts/aro_request.py route --text "智能搜索 蜘蛛侠" --summary-only`
   - `python3 scripts/aro_request.py route --text "资源决策 蜘蛛侠" --summary-only`
+  - `python3 scripts/aro_request.py route --text "资源决策 蜘蛛侠 详情" --summary-only`
 
 公开仓库：
 
@@ -124,6 +125,7 @@ python3 scripts/aro_request.py recover
 python3 scripts/aro_request.py route "盘搜搜索 大君夫人"
 python3 scripts/aro_request.py route "智能搜索 蜘蛛侠"
 python3 scripts/aro_request.py route "资源决策 蜘蛛侠"
+python3 scripts/aro_request.py route "资源决策 蜘蛛侠 详情"
 python3 scripts/aro_request.py route "资源决策 蜘蛛侠 计划"
 python3 scripts/aro_request.py route "资源决策 蜘蛛侠 直接执行"
 python3 scripts/aro_request.py route "先计划"

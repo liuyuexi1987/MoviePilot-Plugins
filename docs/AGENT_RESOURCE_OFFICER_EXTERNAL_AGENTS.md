@@ -55,6 +55,7 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
 - `route "智能搜索 <片名>" --summary-only`
 - `route "资源决策 <片名>" --summary-only`
 - 如果用户已经明确要计划或直接执行，也可以直接发：
+  - `route "资源决策 <片名> 详情" --summary-only`
   - `route "资源决策 <片名> 计划" --summary-only`
   - `route "资源决策 <片名> 直接执行" --summary-only`
 - 如果已经进入同一资源决策会话，还可以直接发：

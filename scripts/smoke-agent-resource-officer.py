@@ -774,6 +774,22 @@ def main() -> int:
                 and smart_decision_plan_after_detail_data.get("workflow") == "smart_resource_plan",
                 json.dumps(smart_decision_plan_after_detail_data, ensure_ascii=False)[:240],
             )
+            smart_decision_detail_intent_session = f"{sessions[1]}-detail-intent"
+            smart_decision_detail_intent = route(base_url, api_key, smart_decision_detail_intent_session, f"资源决策 {args.keyword} 详情")
+            smart_decision_detail_intent_data = assert_route_action("route_smart_decision_detail_intent", smart_decision_detail_intent, "pansou_best_detail")
+            assert_ok(
+                "route_smart_decision_detail_intent_score_summary",
+                isinstance(smart_decision_detail_intent_data.get("score_summary"), dict),
+                json.dumps(smart_decision_detail_intent_data, ensure_ascii=False)[:240],
+            )
+            smart_search_detail_intent_session = f"{sessions[1]}-smart-detail-intent"
+            smart_search_detail_intent = route(base_url, api_key, smart_search_detail_intent_session, f"智能搜索 {args.keyword} 详情")
+            smart_search_detail_intent_data = assert_route_action("route_smart_search_detail_intent", smart_search_detail_intent, "pansou_best_detail")
+            assert_ok(
+                "route_smart_search_detail_intent_score_summary",
+                isinstance(smart_search_detail_intent_data.get("score_summary"), dict),
+                json.dumps(smart_search_detail_intent_data, ensure_ascii=False)[:240],
+            )
             smart_shortcut_session = f"{sessions[1]}-shortcuts"
             assert_route_action(
                 "route_smart_decision_shortcuts_start",
