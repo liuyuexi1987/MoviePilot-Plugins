@@ -390,6 +390,98 @@ class QuarkTransferService:
             current_fid = found_fid
         return True, current_fid, normalized
 
+    def rename_file(self, fid: str, new_name: str) -> Tuple[bool, Dict[str, Any], str]:
+        clean_fid = self.clean_text(fid)
+        clean_name = self.clean_text(new_name)
+        if not clean_fid:
+            return False, {}, "缺少要重命名的文件 fid"
+        if not clean_name:
+            return False, {}, "缺少新的文件名"
+        ok, data, message = self._request(
+            "POST",
+            "https://drive.quark.cn/1/clouddrive/file/rename",
+            params=self._common_params(),
+            json_body={
+                "fid": clean_fid,
+                "file_name": clean_name,
+            },
+        )
+        if not ok:
+            return False, data if isinstance(data, dict) else {}, message
+        return True, data if isinstance(data, dict) else {}, ""
+
+    def batch_rename(
+        self,
+        entries: List[Dict[str, Any]],
+        *,
+        temp_prefix: str = ".__aro_tmp__",
+    ) -> Tuple[bool, Dict[str, Any], str]:
+        rows = [dict(item or {}) for item in (entries or []) if isinstance(item, dict)]
+        if not rows:
+            return False, {}, "没有可执行的夸克重命名项"
+
+        staged: List[Dict[str, Any]] = []
+        reverted = False
+        for index, item in enumerate(rows, 1):
+            fid = self.clean_text(item.get("fid"))
+            old_name = self.clean_text(item.get("old_name") or item.get("name"))
+            new_name = self.clean_text(item.get("new_name"))
+            ext = ""
+            if "." in old_name:
+                ext = "." + old_name.rsplit(".", 1)[1]
+            temp_name = f"{temp_prefix}{index:03d}{ext}"
+            ok, _, message = self.rename_file(fid, temp_name)
+            if not ok:
+                for staged_item in reversed(staged):
+                    rollback_ok, _, _ = self.rename_file(
+                        self.clean_text(staged_item.get("fid")),
+                        self.clean_text(staged_item.get("old_name")),
+                    )
+                    reverted = reverted or rollback_ok
+                return False, {
+                    "phase": "temp_rename",
+                    "failed_index": index,
+                    "failed_name": old_name,
+                    "rolled_back": reverted,
+                }, message or f"临时改名失败：{old_name}"
+            staged.append({
+                "fid": fid,
+                "old_name": old_name,
+                "new_name": new_name,
+                "temp_name": temp_name,
+            })
+
+        finalized: List[Dict[str, Any]] = []
+        for index, item in enumerate(staged, 1):
+            ok, _, message = self.rename_file(
+                self.clean_text(item.get("fid")),
+                self.clean_text(item.get("new_name")),
+            )
+            if not ok:
+                # Best-effort rollback for the remaining temp files. Files already
+                # renamed to final names are left as-is to avoid a second cascade.
+                for pending in staged[index - 1:]:
+                    if pending in finalized:
+                        continue
+                    rollback_ok, _, _ = self.rename_file(
+                        self.clean_text(pending.get("fid")),
+                        self.clean_text(pending.get("old_name")),
+                    )
+                    reverted = reverted or rollback_ok
+                return False, {
+                    "phase": "final_rename",
+                    "failed_index": index,
+                    "failed_name": self.clean_text(item.get("new_name")),
+                    "renamed_count": len(finalized),
+                    "rolled_back_remaining": reverted,
+                }, message or f"正式改名失败：{self.clean_text(item.get('new_name'))}"
+            finalized.append(dict(item))
+
+        return True, {
+            "renamed_count": len(finalized),
+            "items": finalized,
+        }, "success"
+
     def create_save_task(
         self,
         pwd_id: str,
@@ -504,6 +596,14 @@ class QuarkTransferService:
             return False, {"task_id": task_id}, message
 
         item_names = [str(item.get("file_name") or "") for item in share_items if item.get("file_name")]
+        saved_roots = [
+            {
+                "name": str(item.get("file_name") or ""),
+                "dir": bool(item.get("dir")),
+                "fid": str(item.get("fid") or ""),
+            }
+            for item in share_items
+        ]
         result = {
             "share_url": share_url,
             "pwd_id": pwd_id,
@@ -513,6 +613,7 @@ class QuarkTransferService:
             "task_id": task_id,
             "saved_count": len(share_items),
             "items": item_names[:20],
+            "saved_roots": saved_roots[:20],
             "task": task,
             "trigger": trigger,
             "time": self._tz_now().strftime("%Y-%m-%d %H:%M:%S"),

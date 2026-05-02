@@ -501,6 +501,113 @@ class AgentResourceOfficer(_PluginBase):
         return ""
 
     @staticmethod
+    def _assistant_quark_video_extensions() -> Tuple[str, ...]:
+        return (".mp4", ".mkv", ".avi", ".mov", ".ts", ".wmv", ".flv", ".m4v")
+
+    @classmethod
+    def _assistant_quark_is_video_name(cls, value: Any) -> bool:
+        text = str(value or "").strip().lower()
+        return any(text.endswith(ext) for ext in cls._assistant_quark_video_extensions())
+
+    @classmethod
+    def _assistant_quark_clean_title_candidate(cls, value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        text = re.sub(r"\.[A-Za-z0-9]{2,4}$", "", text)
+        text = text.replace("_", " ").replace(".", " ")
+        for pattern in [
+            r"\[[^\]]{1,24}\]",
+            r"【[^】]{1,24}】",
+            r"\([^)]{1,24}\)",
+            r"（[^）]{1,24}）",
+            r"\bS\d{1,2}\s*E\d{1,3}\b",
+            r"\bE\d{1,3}\b",
+            r"\bEP?\d{1,3}\b",
+            r"第\s*\d{1,3}\s*[集话話期]",
+            r"全\s*\d+\s*集",
+            r"更新至\s*第?\s*\d+\s*集?",
+            r"\b(?:2160|1080|720)p\b",
+            r"\b(?:4k|hdr|webrip|web-dl|bluray|x264|x265|h264|h265|aac|dts|中字|双字|国语|粤语|内封|简中|繁中)\b",
+        ]:
+            text = re.sub(pattern, " ", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s+", " ", text)
+        text = text.strip(" -_./")
+        if text.lower() in {"quark", "pan", "新建文件夹", "folder", "video"}:
+            return ""
+        if len(text) < 2:
+            return ""
+        return text
+
+    @classmethod
+    def _assistant_quark_common_title_candidate(cls, file_names: List[str]) -> str:
+        counts: Dict[str, int] = {}
+        for name in file_names or []:
+            stem = str(name or "").rsplit(".", 1)[0]
+            match = re.search(r"(S\d{1,2}\s*E\d{1,3}|第\s*\d{1,3}\s*[集话話期]|\bEP?\d{1,3}\b)", stem, flags=re.IGNORECASE)
+            prefix = stem[:match.start()] if match and match.start() > 0 else stem
+            candidate = cls._assistant_quark_clean_title_candidate(prefix)
+            if candidate:
+                counts[candidate] = counts.get(candidate, 0) + 1
+        if not counts:
+            return ""
+        candidate, count = sorted(counts.items(), key=lambda item: (-item[1], -len(item[0])))[0]
+        threshold = max(2, min(3, len(file_names or [])))
+        return candidate if count >= threshold else ""
+
+    @classmethod
+    def _assistant_quark_extract_episode_info(cls, name: Any) -> Dict[str, Any]:
+        text = str(name or "").strip()
+        stem = text.rsplit(".", 1)[0]
+        patterns = [
+            (r"[Ss](\d{1,2})[\s._-]*[Ee](\d{1,3})", "season_episode"),
+            (r"第\s*(\d{1,3})\s*[集话話期]", "cn_episode"),
+            (r"\bEP?\s*(\d{1,3})\b", "ep_token"),
+            (r"(?:^|[.\s_-])(\d{1,3})(?:v\d+)?$", "trailing_number"),
+        ]
+        for pattern, source in patterns:
+            match = re.search(pattern, stem, flags=re.IGNORECASE)
+            if not match:
+                continue
+            if source == "season_episode":
+                return {
+                    "season": max(1, cls._safe_int(match.group(1), 1)),
+                    "episode": cls._safe_int(match.group(2), 0),
+                    "matched_by": source,
+                }
+            episode = cls._safe_int(match.group(1), 0)
+            if 0 < episode <= 999:
+                return {
+                    "season": 1,
+                    "episode": episode,
+                    "matched_by": source,
+                }
+        return {"season": 1, "episode": 0, "matched_by": ""}
+
+    @classmethod
+    def _normalize_quark_rename_short_action(
+        cls,
+        value: Any,
+        *,
+        state: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        current_state = dict(state or {})
+        if cls._clean_text(current_state.get("kind")) != "assistant_quark_rename_suggestion":
+            return {}
+        raw = cls._clean_text(value)
+        compact = re.sub(r"\s+", "", raw).lower()
+        if compact in {"确认命名", "确认改名", "确认重命名", "执行命名", "执行改名", "执行重命名", "确认", "执行"}:
+            return {"action": "quark_rename_execute"}
+        if compact in {"命名建议", "重命名建议", "看命名建议", "查看命名建议"}:
+            return {"action": "quark_rename_preview"}
+        match = re.match(r"^\s*(?:改名为|剧名是|就叫|按剧名|用剧名)\s+(.+?)\s*$", raw)
+        if match:
+            title = cls._clean_text(match.group(1))
+            if title:
+                return {"action": "quark_rename_override_title", "title": title}
+        return {}
+
+    @staticmethod
     def _is_pending_plan_confirmation_text(value: Any) -> bool:
         raw = str(value or "").strip()
         if not raw:
@@ -7325,6 +7432,492 @@ class AgentResourceOfficer(_PluginBase):
             })
         return summary
 
+    def _assistant_quark_resolve_scan_directory(
+        self,
+        *,
+        service: QuarkTransferService,
+        transfer_result: Dict[str, Any],
+    ) -> Tuple[bool, Dict[str, Any], str]:
+        target_fid = self._clean_text(transfer_result.get("target_fid"))
+        target_path = self._clean_text(transfer_result.get("target_path")) or self._quark_default_path
+        if not target_fid:
+            return False, {}, "缺少夸克目标目录 fid"
+        ok, children, message = service.list_children(target_fid)
+        if not ok:
+            return False, {}, message or "读取夸克目标目录失败"
+        saved_roots = [
+            dict(item or {})
+            for item in (transfer_result.get("saved_roots") or [])
+            if isinstance(item, dict)
+        ]
+        if len(saved_roots) == 1 and bool(saved_roots[0].get("dir")):
+            desired_name = self._clean_text(saved_roots[0].get("name"))
+            for child in children:
+                current = dict(child or {})
+                if bool(current.get("dir")) and self._clean_text(current.get("name")) == desired_name:
+                    child_fid = self._clean_text(current.get("fid"))
+                    child_path = self._normalize_path(f"{target_path}/{desired_name}")
+                    ok, nested_children, nested_message = service.list_children(child_fid)
+                    if not ok:
+                        return False, {}, nested_message or "读取夸克转存目录失败"
+                    return True, {
+                        "scan_fid": child_fid,
+                        "scan_path": child_path,
+                        "folder_name": desired_name,
+                        "items": [dict(item or {}) for item in nested_children],
+                    }, ""
+        folder_name = self._clean_text(target_path.rsplit("/", 1)[-1]) or "夸克目录"
+        return True, {
+            "scan_fid": target_fid,
+            "scan_path": target_path,
+            "folder_name": folder_name,
+            "items": [dict(item or {}) for item in children],
+        }, ""
+
+    def _assistant_quark_build_rename_suggestion(
+        self,
+        *,
+        transfer_result: Dict[str, Any],
+        title_hint: str = "",
+    ) -> Dict[str, Any]:
+        service = self._ensure_quark_service()
+        ok, scan_data, message = self._assistant_quark_resolve_scan_directory(
+            service=service,
+            transfer_result=transfer_result,
+        )
+        if not ok:
+            return {"applicable": False, "reason": message or "读取夸克目录失败"}
+        rows = [dict(item or {}) for item in (scan_data.get("items") or []) if isinstance(item, dict)]
+        video_items = [
+            {
+                "fid": self._clean_text(item.get("fid")),
+                "name": self._clean_text(item.get("name")),
+                "dir": bool(item.get("dir")),
+            }
+            for item in rows
+            if not bool(item.get("dir")) and self._assistant_quark_is_video_name(item.get("name"))
+        ]
+        if len(video_items) < 2:
+            return {
+                "applicable": False,
+                "reason": "当前夸克目录视频文件不足两集，暂不建议自动规范命名。",
+                "scan_path": self._clean_text(scan_data.get("scan_path")),
+            }
+        prepared_files: List[Dict[str, Any]] = []
+        episodes_seen: set[int] = set()
+        seasons_seen: set[int] = set()
+        unresolved_names: List[str] = []
+        duplicate_episodes: List[int] = []
+        for item in video_items:
+            episode_info = self._assistant_quark_extract_episode_info(item.get("name"))
+            episode = self._safe_int(episode_info.get("episode"), 0)
+            if episode <= 0:
+                unresolved_names.append(self._clean_text(item.get("name")))
+                continue
+            if episode in episodes_seen:
+                duplicate_episodes.append(episode)
+                continue
+            episodes_seen.add(episode)
+            season = max(1, self._safe_int(episode_info.get("season"), 1))
+            seasons_seen.add(season)
+            ext = ""
+            if "." in self._clean_text(item.get("name")):
+                ext = "." + self._clean_text(item.get("name")).rsplit(".", 1)[1]
+            prepared_files.append({
+                "fid": self._clean_text(item.get("fid")),
+                "old_name": self._clean_text(item.get("name")),
+                "season": season,
+                "episode": episode,
+                "ext": ext,
+                "matched_by": self._clean_text(episode_info.get("matched_by")),
+            })
+        if unresolved_names or duplicate_episodes or len(prepared_files) < 2:
+            reason = "当前目录视频集数判断不稳定，暂不建议自动规范命名。"
+            if duplicate_episodes:
+                reason = f"检测到重复集数：{', '.join(str(item) for item in duplicate_episodes[:3])}"
+            return {
+                "applicable": False,
+                "reason": reason,
+                "scan_path": self._clean_text(scan_data.get("scan_path")),
+                "unresolved_files": unresolved_names[:6],
+            }
+        season_value = min(seasons_seen) if len(seasons_seen) == 1 else 1
+        folder_name = self._clean_text(scan_data.get("folder_name"))
+        common_title = self._assistant_quark_common_title_candidate([item.get("old_name") for item in prepared_files])
+        title_sources = [
+            ("transfer", self._assistant_quark_clean_title_candidate(title_hint)),
+            ("folder", self._assistant_quark_clean_title_candidate(folder_name)),
+            ("files", self._assistant_quark_clean_title_candidate(common_title)),
+        ]
+        final_title = ""
+        title_source = ""
+        for source_name, candidate in title_sources:
+            if candidate:
+                final_title = candidate
+                title_source = source_name
+                break
+        needs_title = not bool(final_title)
+        title_label = final_title or "剧名"
+        width = max(2, len(str(max(item.get("episode") or 0 for item in prepared_files))))
+        preview: List[Dict[str, Any]] = []
+        changed_count = 0
+        for item in sorted(prepared_files, key=lambda current: (self._safe_int(current.get("episode"), 0), self._clean_text(current.get("old_name")))):
+            episode_number = self._safe_int(item.get("episode"), 0)
+            new_name = f"{title_label} S{season_value:02d}E{episode_number:0{width}d}{self._clean_text(item.get('ext'))}"
+            changed = self._clean_text(item.get("old_name")) != new_name
+            if changed:
+                changed_count += 1
+            preview.append({
+                **item,
+                "new_name": new_name,
+                "changed": changed,
+            })
+        if changed_count <= 0:
+            return {
+                "applicable": False,
+                "reason": "当前夸克目录文件名已经比较规范，暂不需要再次重命名。",
+                "scan_path": self._clean_text(scan_data.get("scan_path")),
+            }
+        first_episode = min(item.get("episode") or 0 for item in preview)
+        last_episode = max(item.get("episode") or 0 for item in preview)
+        return {
+            "applicable": True,
+            "needs_title": needs_title,
+            "can_execute": not needs_title,
+            "scan_fid": self._clean_text(scan_data.get("scan_fid")),
+            "scan_path": self._clean_text(scan_data.get("scan_path")),
+            "folder_name": folder_name,
+            "title": final_title,
+            "title_source": title_source,
+            "video_count": len(preview),
+            "changed_count": changed_count,
+            "season": season_value,
+            "episode_range": [first_episode, last_episode],
+            "range_label": f"S{season_value:02d}E{first_episode:0{width}d} ~ S{season_value:02d}E{last_episode:0{width}d}",
+            "preview": preview,
+            "title_candidates": {
+                "transfer": title_sources[0][1],
+                "folder": title_sources[1][1],
+                "files": title_sources[2][1],
+            },
+        }
+
+    def _assistant_quark_rename_decision_summary(self, suggestion: Dict[str, Any]) -> Dict[str, Any]:
+        current = dict(suggestion or {})
+        if not current.get("applicable"):
+            return {
+                "decision_mode": "show_detail",
+                "decision_reason": self._clean_text(current.get("reason")) or "当前不建议自动规范命名。",
+                "preferred_command": "",
+                "fallback_command": "",
+                "compact_commands": [],
+                "recommended_agent_behavior": "show_only",
+                "auto_run_command": "",
+                "confirm_command": "",
+                "display_command": "",
+            }
+        if current.get("needs_title"):
+            return {
+                "decision_mode": "show_detail",
+                "decision_reason": "目录里像是一整季视频，但剧名判断不稳定。请先告诉我剧名，我再按 S01E01 重新生成命名建议。",
+                "preferred_command": "改名为 剧名",
+                "fallback_command": "",
+                "compact_commands": ["改名为 剧名"],
+                "command_policy": "show_only",
+                "preferred_requires_confirmation": False,
+                "fallback_requires_confirmation": False,
+                "can_auto_run_preferred": False,
+                "recommended_agent_behavior": "show_only",
+                "auto_run_command": "",
+                "confirm_command": "",
+                "display_command": "改名为 剧名",
+            }
+        return {
+            "decision_mode": "execute_now",
+            "decision_reason": f"建议先按“{self._clean_text(current.get('title'))} S01E01”规范命名，确认后才会真正改名。",
+            "preferred_command": "确认命名",
+            "fallback_command": "改名为 剧名",
+            "compact_commands": ["确认命名", "改名为 剧名"],
+            "command_policy": "wait_user_confirmation",
+            "preferred_requires_confirmation": True,
+            "fallback_requires_confirmation": False,
+            "can_auto_run_preferred": False,
+            "recommended_agent_behavior": "wait_user_confirmation",
+            "auto_run_command": "",
+            "confirm_command": "确认命名",
+            "display_command": "确认命名",
+        }
+
+    def _assistant_quark_rename_action_templates(
+        self,
+        *,
+        session: str,
+        session_id: str,
+        needs_title: bool,
+    ) -> List[Dict[str, Any]]:
+        templates = [
+            self._assistant_action_template(
+                name="show_quark_rename_suggestion",
+                description="查看当前夸克目录的规范命名建议",
+                endpoint="/api/v1/plugin/AgentResourceOfficer/assistant/route",
+                tool="agent_resource_officer_smart_entry",
+                body={"session": session, "session_id": session_id, "text": "命名建议"},
+            ),
+        ]
+        if needs_title:
+            templates.append(
+                self._assistant_action_template(
+                    name="override_quark_rename_title",
+                    description="手动指定剧名，再重新生成夸克规范命名建议",
+                    endpoint="/api/v1/plugin/AgentResourceOfficer/assistant/route",
+                    tool="agent_resource_officer_smart_entry",
+                    body={"session": session, "session_id": session_id, "text": "改名为 剧名"},
+                )
+            )
+        else:
+            templates.extend([
+                self._assistant_action_template(
+                    name="confirm_quark_rename",
+                    description="确认执行当前夸克目录的规范命名",
+                    endpoint="/api/v1/plugin/AgentResourceOfficer/assistant/route",
+                    tool="agent_resource_officer_smart_entry",
+                    body={"session": session, "session_id": session_id, "text": "确认命名"},
+                ),
+                self._assistant_action_template(
+                    name="override_quark_rename_title",
+                    description="如果剧名不对，手动指定剧名后再确认执行",
+                    endpoint="/api/v1/plugin/AgentResourceOfficer/assistant/route",
+                    tool="agent_resource_officer_smart_entry",
+                    body={"session": session, "session_id": session_id, "text": "改名为 剧名"},
+                ),
+            ])
+        return templates
+
+    def _assistant_quark_rename_lines(self, suggestion: Dict[str, Any]) -> List[str]:
+        current = dict(suggestion or {})
+        if not current.get("applicable"):
+            return [self._clean_text(current.get("reason")) or "当前不建议自动规范命名。"]
+        lines = [
+            f"检测到夸克目录视频文件名较杂乱：{self._clean_text(current.get('scan_path')) or '-'}",
+            f"共 {self._safe_int(current.get('video_count'), 0)} 个视频文件；建议格式：{self._clean_text(current.get('title')) or '剧名'} S01E01",
+        ]
+        if self._clean_text(current.get("title")):
+            lines.append(f"建议改名为：{self._clean_text(current.get('title'))} {self._clean_text(current.get('range_label'))}")
+        if current.get("needs_title"):
+            lines.append("当前剧名判断不稳定。请直接回复：改名为 剧名")
+        else:
+            lines.append("如果标题没问题，回复：确认命名")
+            lines.append("如果标题不对，回复：改名为 剧名")
+        preview = [dict(item or {}) for item in (current.get("preview") or []) if isinstance(item, dict)]
+        if preview:
+            lines.append("预览：")
+            for item in preview[:3]:
+                lines.append(f"- {self._clean_text(item.get('old_name'))} -> {self._clean_text(item.get('new_name'))}")
+        return lines
+
+    def _assistant_quark_rename_session_data(
+        self,
+        *,
+        session: str,
+        session_id: str,
+        suggestion: Dict[str, Any],
+        stage: str,
+    ) -> Dict[str, Any]:
+        current = dict(suggestion or {})
+        next_actions = ["show_quark_rename_suggestion"]
+        if current.get("applicable"):
+            next_actions.append("override_quark_rename_title")
+            if not current.get("needs_title"):
+                next_actions.insert(0, "confirm_quark_rename")
+        return {
+            "kind": "assistant_quark_rename_suggestion",
+            "stage": stage,
+            "keyword": self._clean_text(current.get("title")),
+            "target_path": self._clean_text(current.get("scan_path")),
+            "quark_rename": current,
+            "suggested_actions": next_actions,
+            "action_templates": self._assistant_quark_rename_action_templates(
+                session=session,
+                session_id=session_id,
+                needs_title=bool(current.get("needs_title")),
+            ),
+        }
+
+    def _assistant_quark_rename_override_title_response(
+        self,
+        *,
+        session: str,
+        cache_key: str,
+        state: Dict[str, Any],
+        title: str,
+    ) -> Dict[str, Any]:
+        current_state = dict(state or {})
+        rename_state = dict(current_state.get("quark_rename") or {})
+        clean_title = self._assistant_quark_clean_title_candidate(title)
+        if not clean_title:
+            return {
+                "success": False,
+                "message": "请直接给出有效剧名，例如：改名为 21世纪大君夫人",
+                "data": self._assistant_response_data(session=session, data={
+                    "action": "quark_rename_override_title",
+                    "ok": False,
+                    "error_code": "invalid_title",
+                }),
+            }
+        preview_rows = [dict(item or {}) for item in (rename_state.get("preview") or []) if isinstance(item, dict)]
+        if not preview_rows:
+            return {
+                "success": False,
+                "message": "当前没有可继续使用的夸克命名建议，请先重新转存资源。",
+                "data": self._assistant_response_data(session=session, data={
+                    "action": "quark_rename_override_title",
+                    "ok": False,
+                    "error_code": "rename_state_missing",
+                }),
+            }
+        season_value = max(1, self._safe_int(rename_state.get("season"), 1))
+        width = max(2, len(str(max(self._safe_int(item.get("episode"), 0) for item in preview_rows))))
+        changed_count = 0
+        new_preview: List[Dict[str, Any]] = []
+        for item in preview_rows:
+            episode = self._safe_int(item.get("episode"), 0)
+            new_name = f"{clean_title} S{season_value:02d}E{episode:0{width}d}{self._clean_text(item.get('ext'))}"
+            changed = self._clean_text(item.get("old_name")) != new_name
+            if changed:
+                changed_count += 1
+            new_preview.append({**item, "new_name": new_name, "changed": changed})
+        rename_state.update({
+            "title": clean_title,
+            "title_source": "user",
+            "needs_title": False,
+            "can_execute": changed_count > 0,
+            "changed_count": changed_count,
+            "preview": new_preview,
+        })
+        session_state = self._assistant_quark_rename_session_data(
+            session=session,
+            session_id=cache_key,
+            suggestion=rename_state,
+            stage="rename_suggested",
+        )
+        self._save_session(cache_key, session_state)
+        decision_summary = self._assistant_quark_rename_decision_summary(rename_state)
+        return {
+            "success": True,
+            "message": "\n".join(self._assistant_quark_rename_lines(rename_state)),
+            "data": self._assistant_response_data(session=session, data={
+                "action": "quark_rename_override_title",
+                "ok": True,
+                "rename_suggestion": rename_state,
+                "decision_summary": decision_summary,
+                "next_actions": session_state.get("suggested_actions") or [],
+                "action_templates": session_state.get("action_templates") or [],
+                "target_path": rename_state.get("scan_path"),
+                "write_effect": "state",
+            }),
+        }
+
+    def _assistant_quark_rename_execute_response(
+        self,
+        *,
+        session: str,
+        cache_key: str,
+        state: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        current_state = dict(state or {})
+        rename_state = dict(current_state.get("quark_rename") or {})
+        if not rename_state.get("applicable"):
+            return {
+                "success": False,
+                "message": self._clean_text(rename_state.get("reason")) or "当前没有可执行的夸克命名建议。",
+                "data": self._assistant_response_data(session=session, data={
+                    "action": "quark_rename_execute",
+                    "ok": False,
+                    "error_code": "rename_not_applicable",
+                }),
+            }
+        if rename_state.get("needs_title") or not rename_state.get("can_execute"):
+            return {
+                "success": False,
+                "message": "当前剧名还没确认。请先回复：改名为 剧名",
+                "data": self._assistant_response_data(session=session, data={
+                    "action": "quark_rename_execute",
+                    "ok": False,
+                    "error_code": "rename_title_required",
+                    "rename_suggestion": rename_state,
+                }),
+            }
+        entries = [
+            {
+                "fid": self._clean_text(item.get("fid")),
+                "old_name": self._clean_text(item.get("old_name")),
+                "new_name": self._clean_text(item.get("new_name")),
+            }
+            for item in (rename_state.get("preview") or [])
+            if isinstance(item, dict) and bool(item.get("changed"))
+        ]
+        if not entries:
+            return {
+                "success": False,
+                "message": "当前没有需要实际改名的文件。",
+                "data": self._assistant_response_data(session=session, data={
+                    "action": "quark_rename_execute",
+                    "ok": False,
+                    "error_code": "rename_no_changes",
+                    "rename_suggestion": rename_state,
+                }),
+            }
+        service = self._ensure_quark_service()
+        ok, result, rename_message = service.batch_rename(entries)
+        if not ok:
+            return {
+                "success": False,
+                "message": f"夸克批量重命名失败：{rename_message}",
+                "data": self._assistant_response_data(session=session, data={
+                    "action": "quark_rename_execute",
+                    "ok": False,
+                    "error_code": "quark_rename_failed",
+                    "rename_result": result,
+                    "rename_suggestion": rename_state,
+                    "target_path": rename_state.get("scan_path"),
+                    "write_effect": "write",
+                }),
+            }
+        renamed_items = result.get("items") if isinstance(result.get("items"), list) else entries
+        renamed_count = self._safe_int(result.get("renamed_count"), len(renamed_items))
+        done_state = {
+            "kind": "assistant_quark_rename_suggestion",
+            "stage": "rename_done",
+            "keyword": self._clean_text(rename_state.get("title")),
+            "target_path": self._clean_text(rename_state.get("scan_path")),
+            "quark_rename": {**rename_state, "renamed": True, "renamed_count": renamed_count},
+            "suggested_actions": [],
+            "action_templates": [],
+        }
+        self._save_session(cache_key, done_state)
+        message_lines = [
+            "夸克目录批量重命名已完成",
+            f"目录：{self._clean_text(rename_state.get('scan_path')) or '-'}",
+            f"剧名：{self._clean_text(rename_state.get('title')) or '-'}",
+            f"成功改名：{renamed_count} 个视频文件",
+        ]
+        for item in renamed_items[:3]:
+            message_lines.append(f"- {self._clean_text(item.get('old_name'))} -> {self._clean_text(item.get('new_name'))}")
+        return {
+            "success": True,
+            "message": "\n".join(message_lines),
+            "data": self._assistant_response_data(session=session, data={
+                "action": "quark_rename_execute",
+                "ok": True,
+                "rename_result": {
+                    "renamed_count": renamed_count,
+                    "items": renamed_items,
+                },
+                "target_path": rename_state.get("scan_path"),
+                "write_effect": "write",
+            }),
+        }
+
     @staticmethod
     def _format_followup_summary_lines(summary: Optional[Dict[str, Any]]) -> List[str]:
         data = dict(summary or {})
@@ -12596,7 +13189,7 @@ class AgentResourceOfficer(_PluginBase):
         ]:
             if key in data:
                 payload[key] = data.get(key)
-        for key in ["best_candidate"]:
+        for key in ["best_candidate", "rename_suggestion", "rename_result"]:
             if isinstance(data.get(key), dict):
                 payload[key] = data.get(key)
         for key in ["sources_checked", "alternatives", "available_sources", "blocked_sources"]:
@@ -15883,6 +16476,7 @@ class AgentResourceOfficer(_PluginBase):
             "hdhive_unlock",
             "transfer_115",
             "quark_transfer",
+            "quark_rename_execute",
             "p115_resume",
             "p115_cancel",
             "p115_qrcode_start",
@@ -18350,6 +18944,7 @@ class AgentResourceOfficer(_PluginBase):
         access_code = self._clean_text(body.get("access_code") or body.get("pwd") or body.get("code"))
         target_path = self._clean_text(body.get("path") or body.get("target_path"))
         trigger = self._clean_text(body.get("trigger") or "Agent影视助手 自动路由")
+        title_hint = self._clean_text(body.get("title_hint") or body.get("title") or body.get("keyword"))
 
         if self._is_quark_url(share_url):
             quark_service = self._ensure_quark_service()
@@ -18364,16 +18959,21 @@ class AgentResourceOfficer(_PluginBase):
                     "success": False,
                     "message": f"夸克转存失败：{transfer_message}",
                     "data": {
-                        "provider": "quark",
+                    "provider": "quark",
                         "result": result,
                     },
                 }
+            rename_suggestion = self._assistant_quark_build_rename_suggestion(
+                transfer_result=result,
+                title_hint=title_hint,
+            )
             return {
                 "success": True,
                 "message": transfer_message,
                 "data": {
                     "provider": "quark",
                     "result": result,
+                    "rename_suggestion": rename_suggestion,
                 },
             }
 
@@ -18609,6 +19209,47 @@ class AgentResourceOfficer(_PluginBase):
                         "compact": compact,
                         "apikey": self._extract_apikey(request, body),
                     })
+                ))
+
+        quark_rename_short_action = self._normalize_quark_rename_short_action(text, state=state)
+        if quark_rename_short_action:
+            quark_action = self._clean_text(quark_rename_short_action.get("action"))
+            if quark_action == "quark_rename_preview":
+                rename_state = dict((state or {}).get("quark_rename") or {})
+                decision_summary = self._assistant_quark_rename_decision_summary(rename_state)
+                session_state = self._assistant_quark_rename_session_data(
+                    session=session,
+                    session_id=cache_key,
+                    suggestion=rename_state,
+                    stage=self._clean_text((state or {}).get("stage")) or "rename_suggested",
+                )
+                self._save_session(cache_key, {**state, **session_state})
+                return finish({
+                    "success": bool(rename_state.get("applicable")),
+                    "message": "\n".join(self._assistant_quark_rename_lines(rename_state)),
+                    "data": self._assistant_response_data(session=session, data={
+                        "action": "quark_rename_preview",
+                        "ok": bool(rename_state.get("applicable")),
+                        "rename_suggestion": rename_state,
+                        "decision_summary": decision_summary,
+                        "next_actions": session_state.get("suggested_actions") or [],
+                        "action_templates": session_state.get("action_templates") or [],
+                        "target_path": rename_state.get("scan_path"),
+                        "write_effect": "state",
+                    }),
+                })
+            if quark_action == "quark_rename_override_title":
+                return finish(self._assistant_quark_rename_override_title_response(
+                    session=session,
+                    cache_key=cache_key,
+                    state=state,
+                    title=self._clean_text(quark_rename_short_action.get("title")),
+                ))
+            if quark_action == "quark_rename_execute":
+                return finish(self._assistant_quark_rename_execute_response(
+                    session=session,
+                    cache_key=cache_key,
+                    state=state,
                 ))
 
         recommend_short_direct = self._normalize_mp_recommend_short_action(text, state=state)
@@ -19488,6 +20129,7 @@ class AgentResourceOfficer(_PluginBase):
                     "access_code": parsed.get("access_code") or "",
                     "path": target_path,
                     "trigger": "Agent影视助手 智能入口",
+                    "title_hint": keyword,
                     "apikey": self._extract_apikey(request, body),
                 })
             )
@@ -19503,6 +20145,39 @@ class AgentResourceOfficer(_PluginBase):
                         source="assistant_link",
                         last_error=str(result.get("message") or ""),
                     )
+            if provider == "quark" and result.get("success"):
+                rename_suggestion = dict(((result.get("data") or {}).get("rename_suggestion") or {}))
+                rename_state = self._assistant_quark_rename_session_data(
+                    session=session,
+                    session_id=cache_key,
+                    suggestion=rename_suggestion,
+                    stage="rename_need_title" if rename_suggestion.get("needs_title") else "rename_suggested",
+                ) if rename_suggestion.get("applicable") else {}
+                if rename_state:
+                    self._save_session(cache_key, rename_state)
+                decision_summary = self._assistant_quark_rename_decision_summary(rename_suggestion)
+                message_lines = [
+                    "夸克转存已完成",
+                    f"目录：{((result.get('data') or {}).get('result') or {}).get('target_path') or target_path or '-'}",
+                ]
+                if rename_suggestion.get("applicable"):
+                    message_lines.extend(self._assistant_quark_rename_lines(rename_suggestion))
+                return finish({
+                    "success": True,
+                    "message": "\n".join(line for line in message_lines if line).strip(),
+                    "data": self._assistant_response_data(session=session, data={
+                        "action": "share_route",
+                        "ok": True,
+                        "provider": provider,
+                        "result": result.get("data") or {},
+                        "rename_suggestion": rename_suggestion,
+                        "decision_summary": decision_summary,
+                        "next_actions": rename_state.get("suggested_actions") if rename_state else [],
+                        "action_templates": rename_state.get("action_templates") if rename_state else [],
+                        "target_path": rename_suggestion.get("scan_path") or (((result.get("data") or {}).get("result") or {}).get("target_path") or target_path),
+                        "write_effect": "write",
+                    }),
+                })
             return finish({
                 "success": bool(result.get("success")),
                 "message": (
@@ -21742,6 +22417,7 @@ class AgentResourceOfficer(_PluginBase):
                     "access_code": access_code,
                     "path": final_path,
                     "trigger": "Agent影视助手 智能入口盘搜选择",
+                    "title_hint": self._clean_text(selected.get("note") or selected.get("title")),
                     "apikey": self._extract_apikey(request, body),
                 })
             )
@@ -21774,16 +22450,38 @@ class AgentResourceOfficer(_PluginBase):
             provider = ((route_result.get("data") or {}).get("provider") or "").lower()
             result_payload = (route_result.get("data") or {}).get("result") or {}
             directory = (result_payload.get("result") or {}).get("target_path") or (result_payload.get("result") or {}).get("path") or final_path
-            text_message = "\n".join([
+            rename_suggestion = dict(((route_result.get("data") or {}).get("rename_suggestion") or {}))
+            rename_state = self._assistant_quark_rename_session_data(
+                session=session,
+                session_id=cache_key,
+                suggestion=rename_suggestion,
+                stage="rename_need_title" if rename_suggestion.get("needs_title") else "rename_suggested",
+            ) if provider == "quark" and rename_suggestion.get("applicable") else {}
+            if rename_state:
+                self._save_session(cache_key, rename_state)
+            text_lines = [
                 "盘搜结果已执行转存",
                 f"资源：{selected.get('note') or '未命名资源'}",
                 f"类型：{provider or selected.get('channel') or '-'}",
                 f"目录：{directory or '-'}",
-            ])
+            ]
+            if rename_suggestion.get("applicable"):
+                text_lines.extend(self._assistant_quark_rename_lines(rename_suggestion))
             return finish({
                 "success": True,
-                "message": text_message,
-                "data": self._assistant_response_data(session=session, data={"action": "share_route", "ok": True}),
+                "message": "\n".join(text_lines),
+                "data": self._assistant_response_data(session=session, data={
+                    "action": "share_route",
+                    "ok": True,
+                    "provider": provider,
+                    "result": route_result.get("data") or {},
+                    "rename_suggestion": rename_suggestion,
+                    "decision_summary": self._assistant_quark_rename_decision_summary(rename_suggestion) if rename_suggestion else {},
+                    "next_actions": rename_state.get("suggested_actions") if rename_state else [],
+                    "action_templates": rename_state.get("action_templates") if rename_state else [],
+                    "target_path": rename_suggestion.get("scan_path") or directory,
+                    "write_effect": "write",
+                }),
             })
 
         if kind == "assistant_mp_recommend":
