@@ -345,7 +345,7 @@ class QuarkTransferService:
     def create_folder(self, parent_fid: str, name: str) -> Tuple[bool, str, str]:
         ok, data, message = self._request(
             "POST",
-            "https://pan.quark.cn/1/clouddrive/file/create",
+            "https://drive-pc.quark.cn/1/clouddrive/file",
             json_body={
                 "pdir_fid": parent_fid,
                 "file_name": name,
@@ -354,6 +354,15 @@ class QuarkTransferService:
             },
         )
         if not ok:
+            api_code = self.safe_int((data or {}).get("code"), 0)
+            api_message = self.clean_text((data or {}).get("message") or message)
+            if api_code == 31001 or "guest" in api_message.lower():
+                return (
+                    False,
+                    "",
+                    f"当前夸克登录态可转存到已存在目录，但接口拒绝新建目录（{api_message or 'require login [guest]'}）。"
+                    f"请先在夸克网页端手动创建目录，或继续使用默认目录 {self.default_target_path}",
+                )
             return False, "", message
 
         folder = data.get("data") or {}
@@ -389,6 +398,18 @@ class QuarkTransferService:
             self.path_cache[built] = found_fid
             current_fid = found_fid
         return True, current_fid, normalized
+
+    def ensure_directory(self, path: str) -> Tuple[bool, Dict[str, Any], str]:
+        normalized = self.normalize_path(path or self.default_target_path)
+        if not self.cookie:
+            self._refresh_cookie()
+        if not self.cookie:
+            return False, {}, "未配置夸克 Cookie"
+
+        ok, target_fid, detail = self.ensure_target_dir(normalized)
+        if not ok:
+            return False, {"target_path": normalized}, detail or f"创建目录失败：{normalized}"
+        return True, {"target_path": normalized, "target_fid": target_fid}, "success"
 
     def create_save_task(
         self,
@@ -491,9 +512,10 @@ class QuarkTransferService:
         if not ok:
             return False, {}, message
 
-        ok, target_fid, normalized_path = self.ensure_target_dir(target_path or self.default_target_path)
+        normalized_target_path = self.normalize_path(target_path or self.default_target_path)
+        ok, target_fid, normalized_path = self.ensure_target_dir(normalized_target_path)
         if not ok:
-            return False, {}, target_fid
+            return False, {"target_path": normalized_target_path}, normalized_path or f"创建目录失败：{normalized_target_path}"
 
         ok, task_id, message = self.create_save_task(pwd_id, stoken, share_items, target_fid)
         if not ok:

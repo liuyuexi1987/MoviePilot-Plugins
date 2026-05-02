@@ -1535,6 +1535,12 @@ class AgentResourceOfficer(_PluginBase):
                 "summary": "通过 Agent影视助手 执行夸克分享转存",
             },
             {
+                "path": "/quark/mkdir",
+                "endpoint": self.api_quark_mkdir,
+                "methods": ["POST"],
+                "summary": "通过 Agent影视助手 在夸克网盘中创建目录",
+            },
+            {
                 "path": "/hdhive/health",
                 "endpoint": self.api_hdhive_health,
                 "methods": ["GET"],
@@ -2919,6 +2925,25 @@ class AgentResourceOfficer(_PluginBase):
         if not transfer_ok:
             return {"success": False, "message": transfer_message, "data": result}
         return {"success": True, "message": transfer_message, "data": result}
+
+    async def api_quark_mkdir(self, request: Request):
+        body = await request.json()
+        ok, message = self._check_api_access(request, body)
+        if not ok:
+            return {"success": False, "message": message}
+
+        if not self._enabled:
+            return {"success": False, "message": "插件未启用"}
+
+        target_path = self._resolve_pan_path_value(self._clean_text(body.get("path") or body.get("target_path")))
+        if not target_path or target_path == "/":
+            return {"success": False, "message": "用法：夸克建目录 /收件箱", "data": {"target_path": target_path or "/"}} 
+
+        service = self._ensure_quark_service()
+        mkdir_ok, result, mkdir_message = service.ensure_directory(target_path)
+        if not mkdir_ok:
+            return {"success": False, "message": mkdir_message, "data": result}
+        return {"success": True, "message": f"夸克目录已就绪：{result.get('target_path') or target_path}", "data": result}
 
     async def api_hdhive_health(self, request: Request):
         ok, message = self._check_api_access(request)
@@ -15878,6 +15903,14 @@ class AgentResourceOfficer(_PluginBase):
             options["mode"] = ""
             options["keyword"] = ""
         elif compact in {
+            "夸克建目录",
+            "创建夸克目录",
+            "quarkmkdir",
+        }:
+            options["action"] = "quark_mkdir"
+            options["mode"] = ""
+            options["keyword"] = ""
+        elif compact in {
             "取消计划",
             "清理计划",
             "删除计划",
@@ -16314,6 +16347,8 @@ class AgentResourceOfficer(_PluginBase):
                 ("更新偏好", "preferences_save"),
                 ("偏好设置", "preferences_save"),
                 ("偏好", "preferences_save"),
+                ("夸克建目录", "quark_mkdir"),
+                ("创建夸克目录", "quark_mkdir"),
                 ("查看偏好", "preferences_get"),
                 ("片源偏好", "preferences_get"),
                 ("重置偏好", "preferences_reset"),
@@ -16328,6 +16363,8 @@ class AgentResourceOfficer(_PluginBase):
                         options["action"] = action
                         options["mode"] = ""
                         options["keyword"] = ""
+                        if action == "quark_mkdir" and remain_text:
+                            options["path"] = AgentResourceOfficer._resolve_pan_path_value(remain_text)
                         if remain_text and not options.get("plan_id"):
                             match = re.search(r"\bplan-[a-zA-Z0-9]+\b", remain_text)
                             if match:
@@ -18589,6 +18626,36 @@ class AgentResourceOfficer(_PluginBase):
                     "scoring_policy": self._assistant_scoring_policy_public_data(),
                 }),
             })
+        if assistant_action == "quark_mkdir":
+            final_path = self._resolve_pan_path_value(
+                self._clean_text(parsed.get("path") or body.get("path") or body.get("target_path"))
+            )
+            if not final_path or final_path == "/":
+                return finish({
+                    "success": False,
+                    "message": "用法：夸克建目录 /收件箱",
+                    "data": self._assistant_response_data(session=session, data={
+                        "action": "quark_mkdir",
+                        "ok": False,
+                        "error_code": "missing_target_path",
+                    }),
+                })
+            mkdir_result = await self.api_quark_mkdir(_JsonRequestShim(request, {
+                "path": final_path,
+                "target_path": final_path,
+                "apikey": self._extract_apikey(request, body),
+            }))
+            return finish({
+                "success": bool(mkdir_result.get("success")),
+                "message": mkdir_result.get("message") or "",
+                "data": self._assistant_response_data(session=session, data={
+                    "action": "quark_mkdir",
+                    "ok": bool(mkdir_result.get("success")),
+                    "target_path": ((mkdir_result.get("data") or {}).get("target_path") or final_path),
+                    "target_fid": (mkdir_result.get("data") or {}).get("target_fid") or "",
+                    "write_effect": "write",
+                }),
+            })
         if assistant_action == "hdhive_checkin":
             is_gambler = self._parse_bool_value(parsed.get("is_gambler"), self._hdhive_checkin_gambler_mode)
             result = self._run_hdhive_checkin(is_gambler=is_gambler, trigger="Agent影视助手 智能入口")
@@ -20046,6 +20113,12 @@ class AgentResourceOfficer(_PluginBase):
             route_payload.update({
                 "url": body.get("url") or body.get("share_url"),
                 "access_code": body.get("access_code"),
+            })
+            return await finish(self.api_assistant_route(_JsonRequestShim(request, route_payload)))
+        if name == "quark_mkdir":
+            route_payload.update({
+                "action": "quark_mkdir",
+                "path": body.get("path") or body.get("target_path"),
             })
             return await finish(self.api_assistant_route(_JsonRequestShim(request, route_payload)))
         if name == "unlock_hdhive_resource":
