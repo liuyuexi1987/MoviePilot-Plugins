@@ -10,8 +10,8 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
 
 ## 当前接入状态
 
-- 当前插件版本：`Agent影视助手 0.2.67`
-- 当前 helper 版本：`agent-resource-officer 0.1.40`
+- 当前插件版本：`Agent影视助手 0.2.68`
+- 当前 helper 版本：`agent-resource-officer 0.1.42`
 - 当前最小循环：`startup -> decide --summary-only -> route --summary-only -> followup --summary-only`
 - 当前优先读取字段：`recommended_agent_behavior`、`auto_run_command`、`confirm_command`、`display_command`
 - 当前 AI 识别失败诊断入口：
@@ -28,6 +28,54 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins
 - `docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md`
 - `skills/agent-resource-officer/SKILL.md`
 - `skills/agent-resource-officer/EXTERNAL_AGENTS.md`
+
+## 当前推荐口令
+
+推荐外部智能体优先使用这些固定入口，不要自己发明同义句：
+
+- 搜索：
+  - `搜索 <片名>` / `找 <片名>`
+  - `盘搜搜索 <片名>`
+  - `影巢搜索 <片名>`
+  - `云盘搜索 <片名>`
+  - `MP搜索 <片名>` / `PT搜索 <片名>`
+- 执行：
+  - `转存 <片名>`
+  - `夸克转存 <片名>`
+  - `115转存 <片名>`
+  - `下载 <片名>`
+- 更新：
+  - `更新检查 <片名>`
+  - `检查 <片名>`
+- 维护：
+  - `清空115转存目录`
+  - `清空夸克转存目录`
+  - `影巢签到`
+  - `影巢签到日志`
+  - `刷新影巢Cookie`
+  - `修复影巢签到`
+  - `刷新夸克Cookie`
+  - `修复夸克转存`
+
+## 高概率踩坑
+
+- `云盘搜索` 不是 `盘搜搜索` 的别名。
+  - 必须原样 route。
+  - 目标是一起看盘搜 + 影巢，而不是先盘搜后自己总结。
+- 不要自己重排编号。
+  - 资源官返回 `1..16`、`#17..#24` 时，要原样保留。
+  - 不要按“115 一组、夸克一组、影巢一组”各自从 1 重排。
+- 不要把插件结果加工成“推荐资源 / 分析结论 / 现在要不要转存”。
+  - 这会破坏后续按编号继续执行。
+- `更新` 类请求不要先 `session-clear`，不要先影巢候选，优先直接 route 到 `更新检查`。
+- 夸克失败不要随意猜成路径问题。
+  - 如果插件只返回 `夸克转存失败：无法转存到 /飞书`，原因就是未明，不要自己补“默认目录不存在”“换 path=/ 试试”。
+- 只有明确登录态报错时，才触发 Cookie 修复。
+  - 夸克：`require login [guest]`、`夸克登录态已过期`、`当前夸克登录态不足`
+  - 影巢：网页登录态失效、自动登录拿不到有效 Cookie
+  - `41031`、分享封禁、分享受限都不属于 Cookie 失效。
+- 影巢签到恢复不要教用户手工找 Cookie。
+  - 当前标准恢复方式是本机导出工具自动写回。
 
 ## 接入原则
 

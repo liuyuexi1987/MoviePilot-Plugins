@@ -2441,7 +2441,7 @@ class AgentResourceOfficer(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "影巢签到支持 OpenAPI 与网页兜底两种方式。OpenAPI 签到需要 Premium；普通用户可填写网页 Cookie，或填写账号密码让插件在 Cookie 失效时自动刷新。",
+                                            "text": "影巢签到支持 OpenAPI 与网页兜底两种方式。OpenAPI 签到需要 Premium；普通用户建议优先使用本机“影巢Cookie导出.command”自动写回完整网页登录 Cookie。手工复制 Cookie 容易漏字段，导致看起来已填写但签到仍失败。",
                                         },
                                     }
                                 ],
@@ -2514,7 +2514,7 @@ class AgentResourceOfficer(_PluginBase):
                                             "model": "hdhive_checkin_cookie",
                                             "label": "影巢网页 Cookie（非 Premium 兜底）",
                                             "rows": 3,
-                                            "placeholder": "浏览器登录 hdhive.com 后复制 Cookie；OpenAPI 签到失败时自动兜底",
+                                            "placeholder": "不建议手工填写；优先在 Edge 登录 hdhive.com 后运行“影巢Cookie导出.command”自动写回",
                                         },
                                     }
                                 ],
@@ -2575,7 +2575,7 @@ class AgentResourceOfficer(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "盘搜用于聚合公开网盘分享结果。请先运行 PanSou 服务，再填写 MoviePilot 容器可以访问的 API 地址；留空默认使用 http://127.0.0.1:805，请求失败时会继续尝试 http://host.docker.internal:805 和 http://127.0.0.1:805。",
+                                            "text": "盘搜用于聚合公开网盘分享结果。请填写 MoviePilot 容器视角下可访问的 API 地址，不要按外部智能体机器的视角填写。普通“搜索/找片”默认先盘搜；“云盘搜索”固定比较盘搜 + 影巢。",
                                         },
                                     }
                                 ],
@@ -2622,7 +2622,7 @@ class AgentResourceOfficer(_PluginBase):
                                         "props": {
                                             "type": "info",
                                             "variant": "tonal",
-                                            "text": "夸克用于转存 pan.quark.cn 分享链接。Cookie 可手动填写，也可以开启自动刷新：转存遇到 401 登录失效时，插件会尝试从 MoviePilot 本地 CookieCloud 导入 quark.cn Cookie，并自动重试一次。",
+                                            "text": "夸克用于转存 pan.quark.cn 分享链接。优先使用 CookieCloud 或有效网页登录 Cookie；只有明确出现“require login [guest]”“夸克登录态已过期”“当前夸克登录态不足”时，才建议走 Cookie 修复。分享受限、41031、分享者封禁不属于 Cookie 失效。",
                                         },
                                     }
                                 ],
@@ -2637,7 +2637,7 @@ class AgentResourceOfficer(_PluginBase):
                                             "model": "quark_cookie",
                                             "label": "夸克 Cookie",
                                             "rows": 4,
-                                            "placeholder": "浏览器登录 pan.quark.cn 后复制完整 Cookie",
+                                            "placeholder": "可手工填写，但更推荐 CookieCloud 或本机夸克Cookie导出工具自动写回",
                                         },
                                     }
                                 ],

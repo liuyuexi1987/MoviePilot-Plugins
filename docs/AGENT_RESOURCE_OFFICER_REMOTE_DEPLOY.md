@@ -4,15 +4,15 @@
 
 ## 当前适用状态
 
-- 当前插件版本：`Agent影视助手 0.2.67`
-- 当前 helper 版本：`agent-resource-officer 0.1.40`
+- 当前插件版本：`Agent影视助手 0.2.68`
+- 当前 helper 版本：`agent-resource-officer 0.1.42`
 - 当前最小变量：
   - `ARO_BASE_URL`
   - `ARO_API_KEY`
 - 当前最小验证：
   - `python3 scripts/aro_request.py readiness`
   - `python3 scripts/aro_request.py external-agent`
-  - `python3 scripts/aro_request.py route --text "盘搜搜索 大君夫人" --summary-only`
+- `python3 scripts/aro_request.py route --text "盘搜搜索 大君夫人" --summary-only`
 
 结论先说：
 
@@ -226,3 +226,17 @@ python3 scripts/aro_request.py route "115状态" --summary-only
 - 部署视角
 
 不是协议，也不是用户交互模型。
+
+## 跨机器常见坑
+
+- 外部智能体视角和 MoviePilot 容器视角不是一回事。
+  - `ARO_BASE_URL` 按外部智能体机器能访问到的地址填。
+  - `盘搜 API 地址` 按 MoviePilot 容器能访问到的地址填。
+- 不要默认把 `127.0.0.1` 当成“总是可用”。
+  - 对外部智能体来说，`127.0.0.1` 只代表它自己那台机器。
+  - 对 Docker 里的 MoviePilot 来说，`127.0.0.1` 只代表容器自身。
+- `云盘搜索` 要 route 原话，不要偷换成 `盘搜搜索`。
+- 微信 / general-purpose 任务比 Claw 项目会话更容易忽略项目级 skill。
+  - 重要调试优先在 Claw 或已安装全局 skill 的环境里做。
+- 运行态真实加载目录要确认。
+  - 仓库里改完代码，如果没有同步到容器内实际加载的插件目录，外部智能体和微信仍可能打到旧逻辑。
