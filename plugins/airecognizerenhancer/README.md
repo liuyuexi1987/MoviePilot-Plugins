@@ -1,108 +1,99 @@
 # AI识别增强
 
-这是重构后的新识别插件目录，用来逐步替代当前依赖外部 AI Gateway 的旧识别转发思路。
+`AI识别增强` 用来补强 MoviePilot 原生整理链里的识别阶段。
 
-当前第一版已经可用，目标不是简单复制旧插件，而是改成：
+它的核心思路很简单：
 
-- 直接复用 MoviePilot 当前已启用的 LLM 配置
-- 在原生识别失败后做本地结构化 AI 辅助识别
-- 自动回到 MoviePilot 整理链路继续处理
+- 复用 MoviePilot 当前已经启用的 LLM 配置
+- 在原生识别失败或置信度不足时，做一次本地结构化识别兜底
+- 把结果回写给 MoviePilot，继续走原生二次识别和后续整理链
 
-## 和 MoviePilot 原版“整理失败自动接管”的区别
+## 适合什么场景
 
-MoviePilot 原版智能体现在也提供了一类内置能力：
+- 文件名比较脏，混有压制组、分辨率、语言、站点标记
+- 同一部剧经常出现英文名、别名、原名、翻译名混用
+- 网盘挂载、手动整理、历史资源补录时，原生识别偶尔不稳定
+- 你想把失败样本沉淀下来，后面持续优化 `CustomIdentifiers`
 
-- 当文件整理失败时，由原版智能助手自动接管，再尝试重新整理。
+## 和 MoviePilot 原版智能体的区别
 
-这和 `AI识别增强` 有重叠，但定位不一样：
+MoviePilot 原版智能体已经提供“整理失败后自动接管再试一次”的能力。
+
+这和 `AI识别增强` 有重叠，但定位不同：
 
 - **MP 原版智能体**
-  - 更像“一次性自动补救”
-  - 重点是：当前这次整理失败了，AI 帮你再试一次
+  - 更偏“一次性补救”
   - 适合偶发失败、想省事的场景
 
 - **AI识别增强**
-  - 更像“识别失败治理层”
-  - 不只补救一次，还会：
+  - 更偏“识别失败治理层”
+  - 除了补救当前这次，还能：
     - 保存失败样本
     - 汇总样本洞察
     - 生成 `CustomIdentifiers` 建议
     - 写入识别词
     - 重放 / 复查 / 批量出队
-  - 适合命名混乱、网盘挂载、手动整理失败、同类资源反复识别错这类长期问题
 
 一句话区分：
 
-- MP 原版智能体：偏“自动接管一次”
-- `AI识别增强`：偏“把失败样本沉淀下来，长期减少同类失败”
-
-## 当前定位
-
-- 现在已经作为仓库内唯一保留的 AI 识别主线
-- 不再依赖外部 AI Gateway 回调链
+- 原版智能体：自动接管一次
+- `AI识别增强`：把失败样本沉淀下来，长期减少同类失败
 
 ## 当前能力
 
 - 监听 `ChainEventType.NameRecognize`
-- 用 MP 当前 LLM 结构化判断标题、年份、类型、季集
-- 把识别结果回写到 `name/year/season/episode`
+- 用当前 LLM 结构化判断标题、年份、类型、季集
+- 回写 `name / year / season / episode`
 - 交回 MoviePilot 原生链路继续二次识别
-- 提供 `/health`、`/recognize`、`/failed_samples`、`/sample_worklist`、`/sample_insights`、`/sample_brief`、`/suggest_identifiers`、`/suggest_identifiers_from_sample`、`/suggest_identifiers_for_failed_samples`、`/apply_identifiers`、`/apply_suggested_identifier`、`/apply_suggested_identifiers_for_failed_samples`、`/remove_failed_sample`、`/replay_failed_sample`、`/replay_failed_samples`、`/clear_failed_samples` 十六个 API
-- 可选保存低置信度样本，并对重复样本自动去重、限制保留上限，再继续做样本洞察和 MoviePilot 原生自定义识别词建议
+- 保存低置信度失败样本
+- 提供失败样本工作清单、洞察、重放、删除和清空能力
+- 生成并应用 `CustomIdentifiers` 建议
 
-## 当前接口
+## 主要接口
 
 - `GET /api/v1/plugin/AIRecognizerEnhancer/health`
-  返回启用状态、LLM 提供方、模型名、阈值和超时配置
+  - 查看插件状态、LLM 提供方、模型、阈值和超时配置
 - `POST /api/v1/plugin/AIRecognizerEnhancer/recognize`
-  用当前 LLM 对指定标题做一次本地结构化识别测试
+  - 对单个标题做一次本地结构化识别测试
 - `GET /api/v1/plugin/AIRecognizerEnhancer/failed_samples`
-  查看最近保存的低置信度样本
+  - 查看最近保存的失败样本
 - `GET /api/v1/plugin/AIRecognizerEnhancer/sample_worklist`
-  返回适合智能体直接消费的失败样本摘要列表
+  - 返回适合继续处理的失败样本摘要列表
 - `GET /api/v1/plugin/AIRecognizerEnhancer/sample_insights`
-  聚合失败样本原因、重复问题和优先处理样本，方便先挑最值得写规则的那批
-- `GET /api/v1/plugin/AIRecognizerEnhancer/sample_brief`
-  返回适合智能体低 token 消费的失败样本精简摘要
-- `POST /api/v1/plugin/AIRecognizerEnhancer/suggest_identifiers`
-  根据标题、目标结果和当前识别结果生成 MoviePilot 自定义识别词建议
-- `POST /api/v1/plugin/AIRecognizerEnhancer/suggest_identifiers_from_sample`
-  直接基于最近失败样本或指定样本生成识别词建议
-- `POST /api/v1/plugin/AIRecognizerEnhancer/suggest_identifiers_for_failed_samples`
-  批量为失败样本生成识别词建议
-- `POST /api/v1/plugin/AIRecognizerEnhancer/apply_identifiers`
-  将确认后的规则追加写入系统 `CustomIdentifiers`
-- `POST /api/v1/plugin/AIRecognizerEnhancer/apply_suggested_identifier`
-  直接把最近失败样本或指定样本生成的建议规则写入系统 `CustomIdentifiers`，并按需自动移除该样本
-- `POST /api/v1/plugin/AIRecognizerEnhancer/apply_suggested_identifiers_for_failed_samples`
-  批量把失败样本生成的建议规则写入系统 `CustomIdentifiers`，并按需自动移除对应样本
-- `POST /api/v1/plugin/AIRecognizerEnhancer/remove_failed_sample`
-  按索引移除单条失败样本
+  - 汇总失败原因、重复问题和优先处理样本
 - `POST /api/v1/plugin/AIRecognizerEnhancer/replay_failed_sample`
-  用当前识别词和当前识别器重新复查某条失败样本，并可在确认已修复后自动出队
-- `POST /api/v1/plugin/AIRecognizerEnhancer/replay_failed_samples`
-  批量复查失败样本，并可在确认已修复后批量出队
-- `POST /api/v1/plugin/AIRecognizerEnhancer/clear_failed_samples`
-  清空失败样本文件
+  - 用当前识别词和当前识别器重放复查某条失败样本
+- `POST /api/v1/plugin/AIRecognizerEnhancer/suggest_identifiers_from_sample`
+  - 直接基于失败样本生成识别词建议
+- `POST /api/v1/plugin/AIRecognizerEnhancer/apply_suggested_identifier`
+  - 把建议规则写入系统 `CustomIdentifiers`
 
-## 二期方向
+其余批量接口和清理接口可以按需要继续使用，详细路径以插件 `get_api()` 暴露结果为准。
 
-- 生成“自定义识别词”建议
-- 识别失败样本沉淀
-- 与 MP 原生 Agent / Skill 能力联动
+## 配置建议
 
-## 迁移原则
+- 先确认 MoviePilot 本身已经配置好可用的 LLM
+- 建议保持“保存失败样本”开启
+- 如果你经常处理历史资源或网盘资源，建议定期查看：
+  - `failed_samples`
+  - `sample_worklist`
+  - `sample_insights`
 
-- 不再把外部 Gateway 当作唯一依赖
-- 尽量减少容器间回调和额外网络链路
-- 保持插件职责只聚焦在“识别增强”
+## 已验证情况
 
-## 当前状态
+当前版本：`0.1.12`
 
-- 当前版本：`0.1.12`
-- 当前发布页：<https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.2.68>
-- 当前主线：`MoviePilot 内置 LLM 本地兜底`
-- `0.1.12` 已兼容 MoviePilot 最新 `app.agent.llm` 路径和异步 `get_llm()` 接口，修复最新版 MP 下加载失败问题
-- `0.1.11` 已补上识别词建议模型退化时的精确规则兜底，并同步插件市场版本
-- 方向已切到 MP 内置 LLM 本地兜底
-- 还会继续补提示词、样本分析和识别词建议
+这版已经验证过：
+
+- 最新版 MoviePilot 下可以正常加载
+- 正常中文标题识别可用
+- 英文别名、韩文原名、中文别名可识别回标准媒体信息
+- 低置信度标题会落失败样本
+- `replay_failed_sample` 复查链可用
+
+## 说明
+
+- 这个插件不依赖外部 AI Gateway 回调链
+- 重点是增强识别，不负责替代 MoviePilot 全部整理流程
+- 如果你只是偶发整理失败，原版智能体可能已经够用
+- 如果你长期受命名混乱困扰，这个插件更有价值
