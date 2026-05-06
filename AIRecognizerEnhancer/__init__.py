@@ -1,6 +1,9 @@
 import hmac
+import asyncio
+import inspect
 import json
 import re
+import threading
 from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -15,7 +18,10 @@ from app.core.event import eventmanager
 from app.core.meta.words import WordsMatcher
 from app.core.metainfo import MetaInfo
 from app.db.systemconfig_oper import SystemConfigOper
-from app.helper.llm import LLMHelper
+try:
+    from app.helper.llm import LLMHelper
+except ImportError:  # MoviePilot 新版已迁移到 app.agent.llm
+    from app.agent.llm import LLMHelper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import ChainEventType, MediaType, SystemConfigKey
@@ -47,7 +53,7 @@ class AIRecognizerEnhancer(_PluginBase):
     plugin_name = "AI识别增强"
     plugin_desc = "原生识别失败后直接复用 MoviePilot 当前 LLM 做本地结构化识别兜底。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/airecognizerenhancer.png"
-    plugin_version = "0.1.11"
+    plugin_version = "0.1.12"
     plugin_author = "liuyuexi1987"
     author_url = "https://github.com/liuyuexi1987"
     plugin_config_prefix = "arrecognizerenhancer_"
@@ -687,10 +693,43 @@ AI 识别增强结果：
             ]
         )
 
+    @staticmethod
+    def _run_async_compatible(value: Any) -> Any:
+        """
+        兼容 MoviePilot 新版 `LLMHelper.get_llm()` 的异步返回。
+        在同步上下文直接 asyncio.run；如果当前线程已有事件循环，则开一个短线程执行。
+        """
+        if not inspect.isawaitable(value):
+            return value
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(value)
+
+        result: Dict[str, Any] = {}
+        error: Dict[str, BaseException] = {}
+
+        def _worker() -> None:
+            try:
+                result["value"] = asyncio.run(value)
+            except BaseException as exc:  # noqa: BLE001
+                error["exc"] = exc
+
+        thread = threading.Thread(target=_worker, daemon=True)
+        thread.start()
+        thread.join()
+        if "exc" in error:
+            raise error["exc"]
+        return result.get("value")
+
+    def _get_llm(self):
+        llm = LLMHelper.get_llm(streaming=False)
+        return self._run_async_compatible(llm)
+
     def _invoke_llm(self, title: str, path: str) -> AIRecognitionGuess:
         raw_text = path or title
         meta_hint = self._build_meta_hint(raw_text)
-        llm = LLMHelper.get_llm(streaming=False)
+        llm = self._get_llm()
         prompt = self._build_prompt()
         chain = (
             prompt
@@ -1172,7 +1211,7 @@ AI 识别增强结果：
         result: Dict[str, Any],
         target: Dict[str, Any],
     ) -> IdentifierSuggestionBundle:
-        llm = LLMHelper.get_llm(streaming=False)
+        llm = self._get_llm()
         prompt = self._build_identifier_prompt()
         chain = (
             prompt

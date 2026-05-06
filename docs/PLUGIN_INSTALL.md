@@ -7,7 +7,7 @@
 ## 当前推荐安装状态
 
 - 资源主线：`Agent影视助手 / AgentResourceOfficer 0.2.68`
-- AI 识别主线：`AIRecognizerEnhancer 0.1.11`
+- AI 识别主线：`AIRecognizerEnhancer 0.1.12`
 - 当前 Skill helper：`agent-resource-officer 0.1.42`
 - 当前 Release：<https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.2.68>
 
@@ -68,8 +68,7 @@ dist/
 
 当前会生成：
 
-- `AIRecoginzerForwarder-2.0.1.zip`
-- `AIRecognizerEnhancer-0.1.11.zip`
+- `AIRecognizerEnhancer-0.1.12.zip`
 - `AgentResourceOfficer-0.2.68.zip`
 - `FeishuCommandBridgeLong-0.5.26.zip`
 - `HDHiveDailySign-1.0.0.zip`
@@ -107,6 +106,24 @@ python3 <SKILL_HOME>/hdhive-search-unlock-to-115/scripts/hdhive_agent_tool.py se
 
 这里的 `<SKILL_HOME>` 指你的智能体 Skill 根目录，例如某些客户端会使用自己的 `skills/` 目录。
 
+安装完 `agent-resource-officer` skill 后，建议先把下面这段最短提示词发给智能体：
+
+```text
+请安装并使用 agent-resource-officer skill。
+先读取：
+1. skills/agent-resource-officer/SKILL.md
+2. docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md
+然后按其中的固定命令和接入规则执行。
+
+额外要求：
+- `云盘搜索` 必须原样 route，不要偷换成 `盘搜搜索`
+- 不要自己重排编号
+- 不要把结果改写成“推荐资源/分析结论”
+- 盘搜结果里的链接必须原样保留，不要吞掉 115 或夸克 URL
+```
+
+如果你接的是微信、WorkBuddy、OpenClaw 这类容易二次摘要的智能体，上面最后一条尤其重要。
+
 ## 推荐安装组合
 
 智能体 / 资源工作流主线：
@@ -120,8 +137,7 @@ python3 <SKILL_HOME>/hdhive-search-unlock-to-115/scripts/hdhive_agent_tool.py se
 
 AI 识别线：
 
-- 新方案优先用 `AIRecognizerEnhancer`
-- 旧 Gateway 回调方案继续保留 `AIRecoginzerForwarder`
+- 统一使用 `AIRecognizerEnhancer`
 
 影巢签到：
 
@@ -136,11 +152,3 @@ AI 识别线：
 ## AI Gateway 说明
 
 `AIRecognizerEnhancer` 不需要额外 Gateway，直接复用 MoviePilot 当前 LLM 配置。
-
-只有继续使用旧 `AIRecoginzerForwarder` 时，才需要单独部署 `moviepilot-ai-recognizer-gateway`，并在插件里填写 Webhook 地址，例如：
-
-```text
-http://moviepilot-ai-recognizer-gateway:9000/webhook
-```
-
-如果 MoviePilot 和 Gateway 不在同一 Docker 网络内，再改用宿主机可访问的地址。

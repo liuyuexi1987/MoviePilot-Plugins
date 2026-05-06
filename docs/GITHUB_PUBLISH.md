@@ -50,7 +50,6 @@ Personal MoviePilot plugin suite for agent-driven resource workflows, AI recogni
 
 `release-preflight.sh` 的完整检查阶段会生成当前清单里的 8 个本地安装包：
 
-- `AIRecoginzerForwarder`
 - `AIRecognizerEnhancer`
 - `AgentResourceOfficer`
 - `FeishuCommandBridgeLong`

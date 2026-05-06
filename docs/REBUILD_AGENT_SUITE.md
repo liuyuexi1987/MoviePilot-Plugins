@@ -45,7 +45,7 @@
 
 计划承接的现有能力：
 
-- `AIRecoginzerForwarder`
+- 已全部收敛到 `AIRecognizerEnhancer`
 
 首期能力边界：
 
@@ -58,7 +58,6 @@
 
 重构期间，以下目录全部保留，不做破坏性删除：
 
-- `AIRecoginzerForwarder`
 - `FeishuCommandBridgeLong`
 - `HdhiveOpenApi`
 - `HDHiveDailySign`

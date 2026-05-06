@@ -59,7 +59,7 @@ PY
   exit 0
 fi
 
-REQUESTED_PLUGIN_NAME="${1:-AIRecoginzerForwarder}"
+REQUESTED_PLUGIN_NAME="${1:-AIRecognizerEnhancer}"
 PLUGIN_NAME="$(REQUESTED_PLUGIN_NAME="$REQUESTED_PLUGIN_NAME" ROOT_DIR="$ROOT_DIR" python3 - <<'PY'
 import json
 import os

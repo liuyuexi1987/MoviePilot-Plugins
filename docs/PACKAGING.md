@@ -38,7 +38,7 @@ bash scripts/package-plugin.sh
 bash scripts/package-plugin.sh --help
 ```
 
-默认打包 `AIRecoginzerForwarder`。
+默认打包 `AIRecognizerEnhancer`。
 
 查看当前可打包插件：
 
@@ -149,7 +149,6 @@ gh workflow run draft-release.yml -f tag=<tag> -f dry_run=true
 
 当前完整检查覆盖：
 
-- `AIRecoginzerForwarder`
 - `AIRecognizerEnhancer`
 - `AgentResourceOfficer`
 - `FeishuCommandBridgeLong`

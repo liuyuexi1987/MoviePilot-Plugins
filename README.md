@@ -191,7 +191,6 @@ AI识别增强
 | --- | --- | --- |
 | `AgentResourceOfficer` / Agent影视助手 | 当前主线插件，统一承接盘搜、影巢、115、夸克、更新检查、Cookie 修复和智能体入口 | [查看说明](./AgentResourceOfficer/README.md) |
 | `AIRecognizerEnhancer` / AI识别增强 | MoviePilot 原生识别失败后的本地 LLM 兜底和失败样本治理 | [查看说明](./AIRecognizerEnhancer/README.md) |
-| `AIRecoginzerForwarder` / AI 识别转发 | 旧的外部 AI Gateway 识别转发链，当前已不再是推荐主线 | [查看说明](./AIRecoginzerForwarder/README.md) |
 | `FeishuCommandBridgeLong` / 飞书命令桥接 | 旧飞书长连接兼容/备份入口；新环境优先使用 Agent影视助手 内置入口 | [查看说明](./FeishuCommandBridgeLong/README.md) |
 | `HdhiveOpenApi` / 影巢 OpenAPI | 影巢搜索、解锁、签到、配额查询、115 转存的独立 OpenAPI 插件 | [查看说明](./HdhiveOpenApi/README.md) |
 | `HDHiveDailySign` / 影巢签到 | 自动影巢每日签到，支持普通/赌狗模式、失败重试、自动登录与历史记录 | [查看说明](./HDHiveDailySign/README.md) |

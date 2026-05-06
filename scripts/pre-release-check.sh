@@ -35,7 +35,6 @@ fi
 trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
 
 PACKAGE_PLUGINS=(
-  AIRecoginzerForwarder
   AIRecognizerEnhancer
   AgentResourceOfficer
   FeishuCommandBridgeLong
@@ -77,7 +76,6 @@ python3 - <<'PY'
 from pathlib import Path
 
 roots = [
-    Path("AIRecoginzerForwarder"),
     Path("AIRecognizerEnhancer"),
     Path("AgentResourceOfficer"),
     Path("FeishuCommandBridgeLong"),
@@ -376,17 +374,12 @@ test -f dist/MANIFEST.json
 test -f dist/skills/SHA256SUMS.txt
 test -f dist/skills/MANIFEST.json
 test -f scripts/generate-release-notes.sh
-test -f plugins/airecoginzerforwarder/__init__.py
-test -f plugins/airecoginzerforwarder/requirements.txt
-test -f plugins.v2/airecoginzerforwarder/__init__.py
 test -f plugins/agentresourceofficer/__init__.py
 test -f plugins/agentresourceofficer/agenttool.py
 test -f plugins/agentresourceofficer/schemas.py
 test -f plugins/agentresourceofficer/services/p115_transfer.py
 test -f plugins/airecognizerenhancer/__init__.py
 test -f plugins/quarksharesaver/__init__.py
-test -f AIRecoginzerForwarder/README.md
-test -f AIRecoginzerForwarder/requirements.txt
 for plugin_name in "${PACKAGE_PLUGINS[@]}"; do
   version="$(PLUGIN_NAME="$plugin_name" python3 - <<'PY'
 import json
