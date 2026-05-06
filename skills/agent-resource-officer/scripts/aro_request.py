@@ -64,11 +64,9 @@ WRITE_WORKFLOWS = {
 }
 HDHIVE_COOKIE_TOOL_DIR_CANDIDATES = [
     os.path.expanduser("~/Services/工具项目/影巢Cookie导出 YingChaoCookieExport"),
-    "/Users/jans/Services/工具项目/影巢Cookie导出 YingChaoCookieExport",
 ]
 QUARK_COOKIE_TOOL_DIR_CANDIDATES = [
     os.path.expanduser("~/Services/工具项目/夸克Cookie导出 QuarkCookieExport"),
-    "/Users/jans/Services/工具项目/夸克Cookie导出 QuarkCookieExport",
 ]
 
 

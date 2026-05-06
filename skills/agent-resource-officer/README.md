@@ -92,8 +92,8 @@ bash install.sh --target /path/to/skills/agent-resource-officer
 ```text
 ARO_BASE_URL=http://127.0.0.1:3000
 ARO_API_KEY=your_moviepilot_api_token
-ARO_HDHIVE_COOKIE_EXPORT_DIR=/Users/jans/Services/工具项目/影巢Cookie导出 YingChaoCookieExport
-ARO_QUARK_COOKIE_EXPORT_DIR=/Users/jans/Services/工具项目/夸克Cookie导出 QuarkCookieExport
+ARO_HDHIVE_COOKIE_EXPORT_DIR=~/Services/工具项目/影巢Cookie导出 YingChaoCookieExport
+ARO_QUARK_COOKIE_EXPORT_DIR=~/Services/工具项目/夸克Cookie导出 QuarkCookieExport
 ```
 
 `ARO_BASE_URL` 按实际部署填写：同机可以用 `http://127.0.0.1:3000`，局域网可以用 `http://你的局域网IP:3000`，公网反代可以用自己的 HTTPS 域名。
