@@ -2069,11 +2069,64 @@ class AgentResourceOfficer(_PluginBase):
                         ],
                     },
                     {
+                        "component": "VRow",
+                        "props": {"dense": True, "class": "mt-3"},
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    section_card(
+                                        "智能体入口",
+                                        [
+                                            "统一路由：/assistant/route",
+                                            "继续选择：/assistant/pick",
+                                            "工作流：/assistant/workflow",
+                                            "计划执行：/assistant/plan/execute",
+                                            "Agent Tool：搜索/选择、115 扫码、待任务查看/继续/取消、通用分享路由",
+                                        ],
+                                        compact=True,
+                                    )
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    section_card(
+                                        "账号与签到",
+                                        hdhive_compact_lines
+                                        + [
+                                            f"115 Cookie：{p115_cookie_message}",
+                                        ],
+                                        compact=True,
+                                    )
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    section_card(
+                                        "盘搜服务",
+                                        [
+                                            f"API 地址：{self._pansou_base_url}",
+                                            f"请求超时：{self._pansou_timeout} 秒",
+                                            "用法：发送“盘搜搜索 片名”“ps片名”或“1片名”。",
+                                            "说明：插件只负责调用 PanSou API，本机需要先运行 PanSou 服务。",
+                                        ],
+                                        compact=True,
+                                    )
+                                ],
+                            }
+                        ],
+                    },
+                    {
                         "component": "VAlert",
                         "props": {
                             "type": "info",
                             "variant": "tonal",
-                            "class": "mt-3 mb-4",
+                            "class": "mt-4 mb-1",
                             "title": "统一资源入口",
                         },
                         "content": [
@@ -2152,57 +2205,6 @@ class AgentResourceOfficer(_PluginBase):
                                     "然后按其中的固定命令和接入规则执行。"
                                 ),
                             },
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "props": {"dense": True, "class": "mt-1"},
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 4},
-                                "content": [
-                                    section_card(
-                                        "智能体入口",
-                                        [
-                                            "统一路由：/assistant/route",
-                                            "继续选择：/assistant/pick",
-                                            "工作流：/assistant/workflow",
-                                            "计划执行：/assistant/plan/execute",
-                                            "Agent Tool：搜索/选择、115 扫码、待任务查看/继续/取消、通用分享路由",
-                                        ],
-                                    )
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 4},
-                                "content": [
-                                    section_card(
-                                        "账号与签到",
-                                        hdhive_compact_lines
-                                        + [
-                                            f"115 Cookie：{p115_cookie_message}",
-                                        ],
-                                        compact=True,
-                                    )
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 4},
-                                "content": [
-                                    section_card(
-                                        "盘搜服务",
-                                        [
-                                            f"API 地址：{self._pansou_base_url}",
-                                            f"请求超时：{self._pansou_timeout} 秒",
-                                            "用法：发送“盘搜搜索 片名”“ps片名”或“1片名”。",
-                                            "说明：插件只负责调用 PanSou API，本机需要先运行 PanSou 服务。",
-                                        ],
-                                    )
-                                ],
-                            }
                         ],
                     },
                 ],
@@ -4580,10 +4582,13 @@ class AgentResourceOfficer(_PluginBase):
                 "keyword": keyword,
                 "target_path": target_path or self._hdhive_default_path,
                 "items": items,
+                "total": self._safe_int(total, len(items)),
+                "page": 1,
+                "page_size": 10,
                 **({"recommend_handoff": dict(recommend_handoff)} if recommend_handoff else {}),
             },
         )
-        text_message = self._format_pansou_text(keyword, items, total)
+        text_message = self._format_pansou_text(keyword, items, total, page=1, page_size=10)
         if lead_note:
             text_message = self._prepend_search_note(text_message, lead_note)
         public_items = self._public_pansou_items(items)
@@ -4591,6 +4596,10 @@ class AgentResourceOfficer(_PluginBase):
             "action": action_name,
             "ok": True,
             "items": public_items,
+            "total": self._safe_int(total, len(items)),
+            "page": 1,
+            "page_size": 10,
+            "total_pages": max(1, (len(items) + 10 - 1) // 10) if items else 1,
             "decision_summary": self._assistant_pansou_entry_summary(items),
             "search_scope": search_scope,
         }
@@ -4655,6 +4664,57 @@ class AgentResourceOfficer(_PluginBase):
             if cached.get("url"):
                 lines.append(f"   {cached['url']}")
         return lines
+
+    def _format_pansou_text(
+        self,
+        keyword: str,
+        items: List[Dict[str, Any]],
+        total: int,
+        *,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> str:
+        safe_page, safe_page_size, total_pages, start, end = self._page_bounds(len(items), page=page, page_size=page_size)
+        page_items = items[start:end]
+        count_115 = len([x for x in page_items if x.get("channel") == "115"])
+        count_quark = len([x for x in page_items if x.get("channel") == "quark"])
+        lines = [
+            f"盘搜搜索：{keyword}",
+            f"共找到 {total} 条结果，当前第 {safe_page}/{total_pages} 页（本次缓存 {len(items)} 条候选），本页 115 {count_115} 条、夸克 {count_quark} 条：",
+        ]
+        seen_115 = False
+        seen_quark = False
+        for cached in page_items:
+            idx = cached["index"]
+            channel = cached["channel"]
+            if channel == "115" and not seen_115:
+                lines.append("🟦 115 结果")
+                seen_115 = True
+            elif channel == "quark" and not seen_quark:
+                lines.append("🟨 夸克结果")
+                seen_quark = True
+            lines.append(f"{idx}. [{channel}] {cached.get('note') or cached.get('title')}")
+            detail_parts = []
+            if cached.get("datetime"):
+                detail_parts.append(cached["datetime"])
+            if detail_parts:
+                lines.append(f"   {' · '.join(detail_parts)}")
+            if cached.get("password"):
+                lines.append(f"   提取码：{cached['password']}")
+            brief = self._pansou_item_brief_summary(cached)
+            if brief:
+                lines.append(f"   摘要：{brief}")
+            if cached.get("url"):
+                lines.append(f"   {cached['url']}")
+        first_visible_index = self._safe_int((page_items[0] or {}).get("index"), 1) if page_items else 1
+        next_quark_hint = next((self._safe_int(item.get("index"), 0) for item in page_items if item.get("channel") == "quark"), 0)
+        lines.append("下一步：直接回编号即可转存；想先确认可发“选择 编号 详情”。")
+        if next_quark_hint > 0:
+            lines.append(f"本页夸克结果从 {next_quark_hint} 开始编号；例如直接回复“{next_quark_hint}”即可处理本页第 1 条夸克结果。")
+        lines.append(f"如需改目录，可发“选择 {first_visible_index} path=/目录”；只有明确要保留计划确认链时才发“计划选择 编号”。")
+        if safe_page < total_pages:
+            lines.append("如需继续翻页，可回复：n 下一页")
+        return "\n".join(lines)
 
     def _format_hdhive_resource_body_lines(
         self,
@@ -4765,28 +4825,20 @@ class AgentResourceOfficer(_PluginBase):
                 "hdhive_resources": hdhive_resources,
                 "hdhive_candidate": dict(hdhive_candidate or {}),
                 "hdhive_candidates": hdhive_candidates,
+                "page": 1,
+                "page_size": 10,
             },
         )
-        lines = [f"云盘搜索：{keyword}", "", "盘搜结果"]
-        if pansou_items:
-            lines.extend(self._format_pansou_body_lines(pansou_items, pansou_total))
-        else:
-            lines.append("暂无结果")
-        lines.extend(["", "影巢结果"])
-        if hdhive_resources:
-            lines.extend(self._format_hdhive_resource_body_lines(
-                hdhive_resources,
-                candidate=hdhive_candidate,
-                start_index=len(pansou_items) + 1,
-            ))
-        elif hdhive_candidates:
-            lines.append(f"候选影片 {len(hdhive_candidates)} 个，当前未自动展开。")
-            lines.append(f"如需细看影巢，请发送：影巢搜索 {keyword}")
-        else:
-            lines.append("暂无结果")
-        lines.append("下一步：直接回编号即可转存；想先确认可发“选择 编号 详情”。")
-        lines.append("如需只看单一来源，可继续发：盘搜搜索 片名 / 影巢搜索 片名。")
-        text_message = "\n".join(lines)
+        text_message = self._format_cloud_text(
+            keyword=keyword,
+            pansou_items=pansou_items,
+            pansou_total=pansou_total,
+            hdhive_resources=hdhive_resources,
+            hdhive_candidate=hdhive_candidate,
+            hdhive_candidates=hdhive_candidates,
+            page=1,
+            page_size=10,
+        )
         if lead_note:
             text_message = self._prepend_search_note(text_message, lead_note)
         return {
@@ -4799,10 +4851,61 @@ class AgentResourceOfficer(_PluginBase):
                 "hdhive_resources": self._public_hdhive_items(hdhive_resources),
                 "hdhive_candidate": dict(hdhive_candidate or {}),
                 "hdhive_candidate_count": len(hdhive_candidates or []),
+                "page": 1,
+                "page_size": 10,
+                "total_pages": max(1, ((len(pansou_items) + len(hdhive_resources)) + 10 - 1) // 10) if (pansou_items or hdhive_resources) else 1,
                 "decision_summary": self._assistant_cloud_entry_summary(pansou_items, hdhive_resources),
                 "search_scope": "pansou_and_hdhive",
             }),
         }
+
+    def _format_cloud_text(
+        self,
+        *,
+        keyword: str,
+        pansou_items: List[Dict[str, Any]],
+        pansou_total: int,
+        hdhive_resources: List[Dict[str, Any]],
+        hdhive_candidate: Optional[Dict[str, Any]],
+        hdhive_candidates: List[Dict[str, Any]],
+        page: int = 1,
+        page_size: int = 10,
+    ) -> str:
+        total_items = len(pansou_items) + len(hdhive_resources)
+        safe_page, safe_page_size, total_pages, start, end = self._page_bounds(total_items, page=page, page_size=page_size)
+        start_index = start + 1
+        end_index = min(total_items, end)
+        lines = [f"云盘搜索：{keyword}"]
+        if total_items > 0:
+            lines.append(f"当前第 {safe_page}/{total_pages} 页，展示编号 {start_index}-{end_index} / 共 {total_items} 条已展开结果：")
+        pansou_page_items = [item for item in pansou_items if start < self._safe_int(item.get('index'), 0) <= end]
+        hdhive_page_items = [item for item in hdhive_resources if start < self._safe_int(item.get('cloud_index') or item.get('index'), 0) <= end]
+        lines.extend(["", "盘搜结果"])
+        if pansou_page_items:
+            lines.extend(self._format_pansou_body_lines(pansou_page_items, pansou_total))
+        elif pansou_items:
+            lines.append("本页无盘搜结果")
+        else:
+            lines.append("暂无结果")
+        lines.extend(["", "影巢结果"])
+        if hdhive_page_items:
+            lines.extend(self._format_hdhive_resource_body_lines(
+                hdhive_page_items,
+                candidate=hdhive_candidate,
+                start_index=self._safe_int((hdhive_page_items[0] or {}).get("cloud_index") or (hdhive_page_items[0] or {}).get("index"), 1),
+            ))
+        elif hdhive_resources:
+            lines.append("本页无影巢结果")
+        elif hdhive_candidates:
+            lines.append(f"候选影片 {len(hdhive_candidates)} 个，当前未自动展开。")
+            lines.append(f"如需细看影巢，请发送：影巢搜索 {keyword}")
+        else:
+            lines.append("暂无结果")
+        lines.append("下一步：直接回编号即可转存；想先确认可发“选择 编号 详情”。")
+        lines.append("如需只看单一来源，可继续发：盘搜搜索 片名 / 影巢搜索 片名。")
+        if safe_page < total_pages:
+            lines.append("如需继续翻页，可回复：n 下一页")
+        return "\n".join(lines)
 
     def _assistant_finalize_hdhive_candidates(
         self,
@@ -5232,22 +5335,54 @@ class AgentResourceOfficer(_PluginBase):
         item["score"] = self._score_pt_resource(item, preferences=preferences)
         return item
 
-    def _mp_search_cache_preview(self, cache_key: str, preferences: Dict[str, Any], limit: int = 10) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _page_bounds(total_items: int, page: int = 1, page_size: int = 10) -> Tuple[int, int, int, int]:
+        safe_page_size = max(1, int(page_size or 10))
+        total_pages = max(1, (max(0, total_items) + safe_page_size - 1) // safe_page_size) if total_items else 1
+        safe_page = min(max(1, int(page or 1)), total_pages)
+        start = (safe_page - 1) * safe_page_size
+        end = start + safe_page_size
+        return safe_page, safe_page_size, total_pages, start, end
+
+    def _mp_search_cache_preview(
+        self,
+        cache_key: str,
+        preferences: Dict[str, Any],
+        *,
+        page: int = 1,
+        page_size: int = 10,
+        limit: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
         try:
             cache = self._ensure_feishu_channel()._get_search_cache(cache_key)
         except Exception:
             cache = None
         results = (cache or {}).get("results") or []
         preview: List[Dict[str, Any]] = []
-        for index, context in enumerate(results[:max(1, limit)], 1):
+        effective_page_size = max(1, self._safe_int(limit, page_size))
+        _safe_page, safe_page_size, _total_pages, start, end = self._page_bounds(len(results), page=page, page_size=effective_page_size)
+        for index, context in enumerate(results[start:end], start + 1):
             preview.append(self._mp_context_preview_item(context, index, preferences))
         return preview
 
-    def _format_mp_search_text(self, keyword: str, message_text: str, preview: List[Dict[str, Any]]) -> str:
+    def _format_mp_search_text(
+        self,
+        keyword: str,
+        message_text: str,
+        preview: List[Dict[str, Any]],
+        *,
+        total: int = 0,
+        page: int = 1,
+        page_size: int = 10,
+    ) -> str:
         lines = [message_text.strip()] if message_text else [f"MP 原生搜索：{keyword}"]
         if preview:
+            total_results = max(self._safe_int(total, 0), len(preview))
+            safe_page_size = max(1, self._safe_int(page_size, 10))
+            total_pages = max(1, (total_results + safe_page_size - 1) // safe_page_size)
             score_summary = self._score_summary(preview, limit=5)
             lines.append("")
+            lines.append(f"当前第 {max(1, page)}/{total_pages} 页，共 {total_results} 条结果：")
             lines.append("PT 评分摘要：")
             for item in preview[:10]:
                 torrent = item.get("torrent_info") or {}
@@ -5268,6 +5403,8 @@ class AgentResourceOfficer(_PluginBase):
                     details.append("提醒：" + "；".join(str(item) for item in risks[:2]))
                 lines.append("   " + " | ".join(details))
             lines.extend(self._format_score_summary_decision_lines(score_summary))
+            if page < total_pages:
+                lines.append("如需继续翻页，可回复：n 下一页")
             lines.append("下载/订阅属于写入动作，默认请先生成 plan_id，再确认执行。")
         return "\n".join(line for line in lines if line)
 
@@ -5313,27 +5450,48 @@ class AgentResourceOfficer(_PluginBase):
         session: str,
         cache_key: str,
         preferences: Dict[str, Any],
+        page: int = 1,
+        page_size: int = 10,
     ) -> Dict[str, Any]:
         message_text = self._ensure_feishu_channel()._execute_media_search(keyword, cache_key)
         failed_prefixes = ("MP 原生搜索失败", "未识别到媒体信息", "搜索资源失败")
         route_ok = not any(message_text.startswith(prefix) for prefix in failed_prefixes)
-        preview = self._mp_search_cache_preview(cache_key, preferences=preferences, limit=10)
+        preview = self._mp_search_cache_preview(cache_key, preferences=preferences, page=page, page_size=page_size)
+        try:
+            cache = self._ensure_feishu_channel()._get_search_cache(cache_key)
+        except Exception:
+            cache = None
+        total = len((cache or {}).get("results") or [])
         self._save_session(cache_key, {
             "kind": "assistant_mp",
             "stage": "search_result",
             "keyword": keyword,
             "items": preview,
+            "total": total,
+            "page": max(1, self._safe_int(page, 1)),
+            "page_size": max(1, self._safe_int(page_size, 10)),
             "target_path": "",
         })
         return {
             "success": route_ok,
-            "message": self._format_mp_search_text(keyword, message_text, preview),
+            "message": self._format_mp_search_text(
+                keyword,
+                message_text,
+                preview,
+                total=total,
+                page=page,
+                page_size=page_size,
+            ),
             "data": self._assistant_response_data(session=session, data={
                 "action": "mp_media_search",
                 "ok": route_ok,
                 "keyword": keyword,
                 "source_type": "pt",
                 "items": preview,
+                "total": total,
+                "page": max(1, self._safe_int(page, 1)),
+                "page_size": max(1, self._safe_int(page_size, 10)),
+                "total_pages": max(1, (max(0, total) + max(1, self._safe_int(page_size, 10)) - 1) // max(1, self._safe_int(page_size, 10))) if total else 1,
                 "score_summary": self._score_summary(preview, limit=5),
                 "preferences": preferences,
             }),
@@ -5413,8 +5571,16 @@ class AgentResourceOfficer(_PluginBase):
             "kind": "assistant_mp",
             "stage": "search_result",
             "keyword": (cache or {}).get("keyword") or current_state.get("keyword") or "",
-            "items": self._mp_search_cache_preview(cache_key, preferences=preferences, limit=10),
+            "items": self._mp_search_cache_preview(
+                cache_key,
+                preferences=preferences,
+                page=max(1, self._safe_int(current_state.get("page"), 1)),
+                page_size=max(1, self._safe_int(current_state.get("page_size"), 10)),
+            ),
             "selected_index": choice,
+            "total": len(results),
+            "page": max(1, self._safe_int(current_state.get("page"), 1)),
+            "page_size": max(1, self._safe_int(current_state.get("page_size"), 10)),
             "target_path": current_state.get("target_path") or "",
             **({"recommend_handoff": dict(current_state.get("recommend_handoff") or {})} if current_state.get("recommend_handoff") else {}),
         })
@@ -18304,44 +18470,6 @@ class AgentResourceOfficer(_PluginBase):
             }),
         }
 
-    def _format_pansou_text(self, keyword: str, items: List[Dict[str, Any]], total: int) -> str:
-        count_115 = len([x for x in items if x.get("channel") == "115"])
-        count_quark = len([x for x in items if x.get("channel") == "quark"])
-        lines = [
-            f"盘搜搜索：{keyword}",
-            f"共找到 {total} 条结果，当前展示 115 {count_115} 条、夸克 {count_quark} 条：",
-        ]
-        seen_115 = False
-        seen_quark = False
-        for cached in items:
-            idx = cached["index"]
-            channel = cached["channel"]
-            if channel == "115" and not seen_115:
-                lines.append("🟦 115 结果")
-                seen_115 = True
-            elif channel == "quark" and not seen_quark:
-                lines.append("🟨 夸克结果")
-                seen_quark = True
-            lines.append(f"{idx}. [{channel}] {cached.get('note') or cached.get('title')}")
-            detail_parts = []
-            if cached.get("datetime"):
-                detail_parts.append(cached["datetime"])
-            if detail_parts:
-                lines.append(f"   {' · '.join(detail_parts)}")
-            if cached.get("password"):
-                lines.append(f"   提取码：{cached['password']}")
-            brief = self._pansou_item_brief_summary(cached)
-            if brief:
-                lines.append(f"   摘要：{brief}")
-            if cached.get("url"):
-                lines.append(f"   {cached['url']}")
-        next_quark_hint = count_115 + 1 if count_quark else 1
-        lines.append("下一步：直接回编号即可转存；想先确认可发“选择 编号 详情”。")
-        if count_quark:
-            lines.append(f"夸克结果从 {next_quark_hint} 开始编号；例如直接回复“{next_quark_hint}”即可处理第 1 条夸克结果。")
-        lines.append(f"如需改目录，可发“选择 1 path=/目录”或“选择 {next_quark_hint} path=/目录”；只有明确要保留计划确认链时才发“计划选择 编号”。")
-        return "\n".join(lines)
-
     @classmethod
     def _read_tmdb_api_key(cls) -> str:
         for value in [
@@ -23421,8 +23549,38 @@ class AgentResourceOfficer(_PluginBase):
             pansou_items = state.get("pansou_items") or []
             hdhive_resources = state.get("hdhive_resources") or []
             hdhive_candidate = dict(state.get("hdhive_candidate") or {})
+            hdhive_candidates = state.get("hdhive_candidates") or []
+            page_size = max(1, self._safe_int(state.get("page_size"), 10))
+            current_page = max(1, self._safe_int(state.get("page"), 1))
             pansou_count = len(pansou_items)
             total_count = pansou_count + len(hdhive_resources)
+            if action == "next_page":
+                total_pages = max(1, (total_count + page_size - 1) // page_size) if total_count else 1
+                if current_page >= total_pages:
+                    return {"success": False, "message": "已经是最后一页了，可以直接回复编号继续选择。"}
+                next_page = current_page + 1
+                updated_state = {**state, "page": next_page, "page_size": page_size}
+                self._save_session(cache_key, updated_state)
+                return finish({
+                    "success": True,
+                    "message": self._format_cloud_text(
+                        keyword=self._clean_text(state.get("keyword")),
+                        pansou_items=pansou_items,
+                        pansou_total=self._safe_int(state.get("pansou_total"), pansou_count),
+                        hdhive_resources=hdhive_resources,
+                        hdhive_candidate=hdhive_candidate,
+                        hdhive_candidates=hdhive_candidates,
+                        page=next_page,
+                        page_size=page_size,
+                    ),
+                    "data": self._assistant_response_data(session=session, data={
+                        "action": "cloud_search_next_page",
+                        "ok": True,
+                        "page": next_page,
+                        "page_size": page_size,
+                        "total_pages": total_pages,
+                    }),
+                })
             if action == "best" and pansou_items:
                 delegate_state = {
                     "kind": "assistant_pansou",
@@ -23430,6 +23588,9 @@ class AgentResourceOfficer(_PluginBase):
                     "keyword": state.get("keyword"),
                     "target_path": target_path or state.get("target_path") or self._hdhive_default_path,
                     "items": pansou_items,
+                    "total": self._safe_int(state.get("pansou_total"), len(pansou_items)),
+                    "page": max(1, self._safe_int(state.get("page"), 1)),
+                    "page_size": page_size,
                 }
                 self._save_session(cache_key, delegate_state)
                 try:
@@ -23504,6 +23665,33 @@ class AgentResourceOfficer(_PluginBase):
                 self._save_session(cache_key, state)
         if kind == "assistant_pansou":
             items = state.get("items") or []
+            page_size = max(1, self._safe_int(state.get("page_size"), 10))
+            current_page = max(1, self._safe_int(state.get("page"), 1))
+            total_items = len(items)
+            if action == "next_page":
+                total_pages = max(1, (total_items + page_size - 1) // page_size) if total_items else 1
+                if current_page >= total_pages:
+                    return {"success": False, "message": "已经是最后一页了，可以直接回复编号继续选择。"}
+                next_page = current_page + 1
+                updated_state = {**state, "page": next_page, "page_size": page_size}
+                self._save_session(cache_key, updated_state)
+                return finish({
+                    "success": True,
+                    "message": self._format_pansou_text(
+                        self._clean_text(state.get("keyword")),
+                        items,
+                        self._safe_int(state.get("total"), total_items),
+                        page=next_page,
+                        page_size=page_size,
+                    ),
+                    "data": self._assistant_response_data(session=session, data={
+                        "action": "pansou_search_next_page",
+                        "ok": True,
+                        "page": next_page,
+                        "page_size": page_size,
+                        "total_pages": total_pages,
+                    }),
+                })
             if action == "best":
                 best = self._best_scored_source_item(items)
                 if not best:
@@ -24011,8 +24199,51 @@ class AgentResourceOfficer(_PluginBase):
             ))
 
         if kind == "assistant_mp":
+            preferences = self._normalize_assistant_preferences((self._assistant_preferences or {}).get(self._normalize_preference_key(session=session)))
+            page_size = max(1, self._safe_int(state.get("page_size"), 10))
+            current_page = max(1, self._safe_int(state.get("page"), 1))
+            total = self._safe_int(state.get("total"), 0)
+            if action == "next_page":
+                total_pages = max(1, (max(0, total) + page_size - 1) // page_size) if total else 1
+                if current_page >= total_pages:
+                    return {"success": False, "message": "已经是最后一页了，可以直接回复编号查看详情或下载。"}
+                next_page = current_page + 1
+                preview = self._mp_search_cache_preview(
+                    cache_key,
+                    preferences=preferences,
+                    page=next_page,
+                    page_size=page_size,
+                )
+                updated_state = {
+                    **state,
+                    "items": preview,
+                    "page": next_page,
+                    "page_size": page_size,
+                    "total": total,
+                }
+                self._save_session(cache_key, updated_state)
+                return finish({
+                    "success": True,
+                    "message": self._format_mp_search_text(
+                        self._clean_text(state.get("keyword")),
+                        f"{self._clean_text(state.get('keyword'))} — MP搜索",
+                        preview,
+                        total=total,
+                        page=next_page,
+                        page_size=page_size,
+                    ),
+                    "data": self._assistant_response_data(session=session, data={
+                        "action": "mp_media_search_next_page",
+                        "ok": True,
+                        "keyword": self._clean_text(state.get("keyword")),
+                        "items": preview,
+                        "page": next_page,
+                        "page_size": page_size,
+                        "total": total,
+                        "total_pages": total_pages,
+                    }),
+                })
             if action == "best":
-                preferences = self._normalize_assistant_preferences((self._assistant_preferences or {}).get(self._normalize_preference_key(session=session)))
                 result = await self._assistant_mp_best_result_detail(
                     session=session,
                     cache_key=cache_key,
@@ -24025,7 +24256,6 @@ class AgentResourceOfficer(_PluginBase):
                     result["data"] = result_data
                 return finish(result)
             if action == "best_execute":
-                preferences = self._normalize_assistant_preferences((self._assistant_preferences or {}).get(self._normalize_preference_key(session=session)))
                 plan_result = await self._assistant_mp_best_download_plan(
                     session=session,
                     cache_key=cache_key,
@@ -24040,7 +24270,6 @@ class AgentResourceOfficer(_PluginBase):
                     extra_data={"source_type": "mp_pt"},
                 ))
             if action == "best_plan":
-                preferences = self._normalize_assistant_preferences((self._assistant_preferences or {}).get(self._normalize_preference_key(session=session)))
                 result = await self._assistant_mp_best_download_plan(
                     session=session,
                     cache_key=cache_key,
@@ -24054,7 +24283,6 @@ class AgentResourceOfficer(_PluginBase):
                 return finish(result)
             if action == "detail" and index <= 0:
                 return {"success": False, "message": "MP 搜索结果详情需要编号，例如：选择 1。"}
-            preferences = self._normalize_assistant_preferences((self._assistant_preferences or {}).get(self._normalize_preference_key(session=session)))
             result = await self._assistant_mp_result_detail(
                 choice=index,
                 session=session,

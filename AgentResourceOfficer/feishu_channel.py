@@ -1447,7 +1447,7 @@ class FeishuChannel:
                 "ts": time.time(),
                 "keyword": keyword,
                 "mediainfo": mediainfo,
-                "results": results[:10],
+                "results": list(results or []),
             }
 
     def _get_search_cache(self, cache_key: str) -> Optional[Dict[str, Any]]:
