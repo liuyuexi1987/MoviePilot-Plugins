@@ -52,6 +52,21 @@
 - [跨机器部署](../docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)
 - [全部命令](../docs/ALL_COMMANDS.md)
 
+### MCP 和 Skill 怎么分工
+
+如果你的智能体客户端支持 MoviePilot 官方 MCP，可以一起接。
+
+- MCP 更适合查 MoviePilot 管理信息，比如插件列表、下载器状态、站点状态、历史记录、工作流。
+- `agent-resource-officer skill / helper` 更适合资源流，比如盘搜、影巢、云盘搜索、115/夸克转存、编号选择、翻页、详情和 Cookie 修复。
+- `MP搜索 / PT搜索 / 下载 / 更新检查` 这类片名资源流，也建议优先交给 `agent-resource-officer`，避免智能体绕过插件规则。
+
+MCP 地址通常是：
+
+```text
+http://你的MP地址:3000/api/v1/mcp
+X-API-KEY=你的 MoviePilot API_TOKEN
+```
+
 ---
 
 ## 核心命令

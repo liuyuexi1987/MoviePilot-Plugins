@@ -173,7 +173,9 @@ http://你的MP地址:3000/api/v1/mcp
 X-API-KEY=你的 MoviePilot API_TOKEN
 ```
 
-不过如果你主要想稳定跑资源流，还是推荐继续用 `agent-resource-officer skill / helper`。
+MCP 更适合查 MoviePilot 管理信息，例如插件列表、下载器状态、站点状态、历史记录、工作流等。
+
+如果你主要想稳定跑资源流，例如 `云盘搜索 / 盘搜 / 影巢 / 转存 / 夸克转存 / 115转存 / 下载 / 更新检查 / 编号选择 / Cookie 修复`，还是推荐继续用 `agent-resource-officer skill / helper`，避免智能体绕过插件规则。
 
 详细步骤见：
 

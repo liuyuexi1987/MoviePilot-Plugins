@@ -120,6 +120,21 @@ ARO_API_KEY=你的 MoviePilot API_TOKEN
 
 [跨机器部署](./AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)
 
+### MCP 怎么办
+
+如果你的智能体客户端支持 MoviePilot 官方 MCP，也可以同时接：
+
+```text
+MCP 地址：http://你的MP地址:3000/api/v1/mcp
+认证头：X-API-KEY=你的 MoviePilot API_TOKEN
+```
+
+建议分工：
+
+- 查插件列表、下载器状态、站点状态、历史记录、工作流这类 MoviePilot 管理信息，可以优先用 MCP。
+- 盘搜、影巢、云盘搜索、115/夸克转存、编号选择、翻页、Cookie 修复，继续优先用 `agent-resource-officer skill / helper`。
+- `MP搜索 / PT搜索 / 下载 / 更新检查` 这类片名资源流，也继续优先交给 `agent-resource-officer`，避免智能体绕过插件规则。
+
 ---
 
 ## AI识别增强怎么用

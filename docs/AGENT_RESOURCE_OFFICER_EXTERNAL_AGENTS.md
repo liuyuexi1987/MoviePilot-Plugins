@@ -133,6 +133,34 @@ python3 ~/.codex/skills/agent-resource-officer/scripts/aro_request.py readiness
 
 ---
 
+## MCP 要不要接
+
+MoviePilot 官方 MCP 可以接，但它和 `agent-resource-officer skill / helper` 的定位不同。
+
+推荐这样分工：
+
+| 场景 | 推荐入口 |
+|---|---|
+| 插件列表、下载器状态、站点状态、历史记录、工作流、调度器等 MoviePilot 管理查询 | 官方 MCP |
+| 盘搜、影巢、云盘搜索、115/夸克转存、编号选择、翻页、详情、Cookie 修复 | `agent-resource-officer skill / helper` |
+| `MP搜索 / PT搜索 / 下载 / 更新检查` 这类片名资源流 | 优先 `agent-resource-officer skill / helper` |
+
+MCP 地址通常是：
+
+```text
+http://你的MP地址:3000/api/v1/mcp
+```
+
+认证头：
+
+```text
+X-API-KEY=你的 MoviePilot API_TOKEN
+```
+
+注意：只有当前智能体客户端真的加载出了 `mcp__moviepilot__*` 工具，才算 MCP 已接通。没有接通时，不要让智能体假装在用 MCP；资源流继续走 `agent-resource-officer`。
+
+---
+
 ## 给智能体看的执行规则
 
 这部分规则已经写在 `agent-resource-officer` Skill 里，普通用户不用背。
