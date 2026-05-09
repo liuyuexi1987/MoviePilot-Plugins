@@ -2390,48 +2390,8 @@ class AgentResourceOfficer(_PluginBase):
                                 ),
                             },
                             text_line(
-                                "接外部智能体（同一台机器）",
+                                "接外部智能体",
                                 "text-subtitle-2 font-weight-bold mb-2",
-                            ),
-                            text_line(
-                                "⚠️ 先把下面示例里的 ARO_BASE_URL 和 ARO_API_KEY 换成你自己的地址和 Token，再发给外部智能体。",
-                                "text-subtitle-2 font-weight-bold text-error mb-2",
-                            ),
-                            {
-                                "component": "div",
-                                "props": {
-                                    "class": "pa-3 rounded text-body-2 mb-3",
-                                    "style": "white-space: pre-line; line-height: 1.7; background: rgba(255,255,255,.55);",
-                                },
-                                "text": (
-                                    "把下面这段话直接发给 WorkBuddy、Hermes、OpenClaw（小龙虾）或其他外部智能体：\n"
-                                    "请从这个仓库安装并使用 agent-resource-officer skill：\n"
-                                    "https://github.com/liuyuexi1987/MoviePilot-Plugins\n\n"
-                                    "重要规则先读：\n"
-                                    "1. “转存”默认就是“115转存”；只有我明确说“夸克转存”时才走夸克。\n"
-                                    "2. 资源流命令不要先走 MCP、tool_search、curl 或 raw API，直接走 agent-resource-officer 的 route/pick。\n"
-                                    "3. 长时间使用同一个微信/WorkBuddy/Claw 线程后，如果出现详情误执行、编号混乱或一直套用旧格式，先清理当前 ARO 会话和智能体线程记忆，再重新读取 skill。\n\n"
-                                    "按下面配置完成接入：\n"
-                                    "ARO_BASE_URL=http://127.0.0.1:3000\n"
-                                    "ARO_API_KEY=你的 MoviePilot API_TOKEN\n\n"
-                                    "安装后请优先读取：\n"
-                                    "1. skills/agent-resource-officer/SKILL.md\n"
-                                    "2. docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md\n\n"
-                                    "接入后必须遵守：\n"
-                                    "1. 资源流命令直接走 agent-resource-officer 的 route/pick，不要先走 MCP、tool_search、curl 或 raw API。资源流包括：云盘搜索、盘搜、影巢、MP搜索、PT搜索、转存、夸克转存、115转存、下载、更新、更新检查、检查、选择、详情、n、下一页和编号续选。\n"
-                                    "2. route/pick 默认输出就是适合聊天展示的纯文本 message，请优先原样转发，不要重新改写资源列表；只有需要程序化读取字段时才加 --json-output。\n"
-                                    "3. 如果原始输出里有“智能建议”，必须保留；如果没有，也可以在原始列表后追加智能建议。智能建议不限制长短，但必须引用原始编号，不能替代列表、不能重新编号；建议要围绕画质、集数完整度、字幕、体积、来源可靠性、115/夸克明确偏好来写，不要把评分公式或加分项原样展示成理由。\n"
-                                    "4. “转存”默认就是“115转存”；只有用户明确说“夸克转存”时才走夸克。\n\n"
-                                    "然后按其中的固定命令和接入规则执行。"
-                                ),
-                            },
-                            text_line(
-                                "接外部智能体（MoviePilot 在 NAS / 远程主机）",
-                                "text-subtitle-2 font-weight-bold mb-2",
-                            ),
-                            text_line(
-                                "⚠️ 先把下面示例里的 ARO_BASE_URL 和 ARO_API_KEY 换成你自己的地址和 Token，再发给外部智能体。",
-                                "text-subtitle-2 font-weight-bold text-error mb-2",
                             ),
                             {
                                 "component": "div",
@@ -2440,27 +2400,12 @@ class AgentResourceOfficer(_PluginBase):
                                     "style": "white-space: pre-line; line-height: 1.7; background: rgba(255,255,255,.55);",
                                 },
                                 "text": (
-                                    "如果 MoviePilot 不在当前电脑，而是在 NAS / Docker / 另一台主机，把下面这段话直接发给外部智能体：\n"
-                                    "请从这个仓库安装并使用 agent-resource-officer skill：\n"
+                                    "插件页面不再内置长提示词，避免后续文档更新后这里变旧。\n"
+                                    "如果要接 WorkBuddy、Hermes、OpenClaw 或其他外部智能体，请直接访问快速开始主页：\n"
                                     "https://github.com/liuyuexi1987/MoviePilot-Plugins\n\n"
-                                    "重要规则先读：\n"
-                                    "1. “转存”默认就是“115转存”；只有我明确说“夸克转存”时才走夸克。\n"
-                                    "2. 资源流命令不要先走 MCP、tool_search、curl 或 raw API，直接走 agent-resource-officer 的 route/pick。\n"
-                                    "3. 长时间使用同一个微信/WorkBuddy/Claw 线程后，如果出现详情误执行、编号混乱或一直套用旧格式，先清理当前 ARO 会话和智能体线程记忆，再重新读取 skill。\n\n"
-                                    "MoviePilot 在 NAS，智能体在当前电脑。\n"
-                                    "请按下面配置完成接入：\n"
-                                    "ARO_BASE_URL=http://你的NAS地址:3000\n"
-                                    "ARO_API_KEY=你的 MoviePilot API_TOKEN\n\n"
-                                    "安装后请优先读取：\n"
-                                    "1. skills/agent-resource-officer/SKILL.md\n"
-                                    "2. docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md\n"
-                                    "3. docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md\n\n"
-                                    "接入后必须遵守：\n"
-                                    "1. 资源流命令直接走 agent-resource-officer 的 route/pick，不要先走 MCP、tool_search、curl 或 raw API。资源流包括：云盘搜索、盘搜、影巢、MP搜索、PT搜索、转存、夸克转存、115转存、下载、更新、更新检查、检查、选择、详情、n、下一页和编号续选。\n"
-                                    "2. route/pick 默认输出就是适合聊天展示的纯文本 message，请优先原样转发，不要重新改写资源列表；只有需要程序化读取字段时才加 --json-output。\n"
-                                    "3. 如果原始输出里有“智能建议”，必须保留；如果没有，也可以在原始列表后追加智能建议。智能建议不限制长短，但必须引用原始编号，不能替代列表、不能重新编号；建议要围绕画质、集数完整度、字幕、体积、来源可靠性、115/夸克明确偏好来写，不要把评分公式或加分项原样展示成理由。\n"
-                                    "4. “转存”默认就是“115转存”；只有用户明确说“夸克转存”时才走夸克。\n\n"
-                                    "然后按其中的固定命令和接入规则执行。"
+                                    "外部智能体接入文档：\n"
+                                    "https://github.com/liuyuexi1987/MoviePilot-Plugins/blob/main/docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md\n\n"
+                                    "文档里会说明同机 / NAS 跨机器部署、ARO_BASE_URL、ARO_API_KEY、skill/helper 和 MCP 的选择。"
                                 ),
                             },
                         ],
