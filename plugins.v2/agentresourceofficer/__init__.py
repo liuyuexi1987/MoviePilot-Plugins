@@ -2373,23 +2373,6 @@ class AgentResourceOfficer(_PluginBase):
                                 ),
                             },
                             text_line(
-                                "接外部智能体（官方 MCP 直连）",
-                                "text-subtitle-2 font-weight-bold mb-2",
-                            ),
-                            {
-                                "component": "div",
-                                "props": {
-                                    "class": "pa-3 rounded text-body-2 mb-3",
-                                    "style": "white-space: pre-line; line-height: 1.7; background: rgba(255,255,255,.55);",
-                                },
-                                "text": (
-                                    "如果你的客户端支持远程 HTTP MCP，可直接接入：\n"
-                                    "MCP 地址：http://你的MP地址:3000/api/v1/mcp\n"
-                                    "认证头：X-API-KEY=你的 MoviePilot API_TOKEN\n\n"
-                                    "这条路适合直接使用 MoviePilot 原生工具，以及插件暴露出来的 agent_resource_officer_* 工具。"
-                                ),
-                            },
-                            text_line(
                                 "接外部智能体",
                                 "text-subtitle-2 font-weight-bold mb-2",
                             ),
