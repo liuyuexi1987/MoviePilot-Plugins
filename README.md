@@ -28,13 +28,19 @@ AI识别增强
 
 其中 `Agent影视助手` 的重点是给外部智能体提供稳定入口，让 `OpenClaw`、`Hermes`、`WorkBuddy` 这类智能体不要自己乱拼影巢、盘搜、115、夸克接口，而是统一交给插件执行。
 
-如果你主要是接外部智能体，装完插件后先看这里：
+---
+
+## 第二步：接入外部智能体
+
+如果你要让 `OpenClaw`、`Hermes`、`WorkBuddy` 这类外部智能体控制 MoviePilot，装完插件后先看这里，详细步骤一定以文档为准：
 
 [外部智能体接入 Agent影视助手](./docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
 
+如果长时间使用同一个会话后，智能体开始误解编号或套用旧规则，可以对它说 `校准影视技能`。
+
 ---
 
-## 第二步：填配置
+## 第三步：填配置
 
 打开 `Agent影视助手` 设置页面，按你要用的功能填写：
 
@@ -51,7 +57,7 @@ AI识别增强
 
 ---
 
-## 第三步：直接开始用
+## 第四步：直接开始用
 
 装好、填好配置后，直接在 MoviePilot、飞书，或者外部智能体里发这些命令：
 
@@ -141,55 +147,6 @@ MoviePilot 整理文件时，会先识别文件名里的片名、年份、季、
 它不会绕过 MoviePilot 原生整理流程，只是在识别环节加了一层兜底。
 
 详细说明见：[AI识别增强](./AIRecognizerEnhancer/README.md)
-
----
-
-## 外部智能体接入
-
-如果你要让 `OpenClaw`、`Hermes`、`WorkBuddy` 这类外部智能体控制 MoviePilot，再看这一节。
-
-### 同一台机器
-
-MoviePilot 和智能体都在当前电脑：
-
-```text
-ARO_BASE_URL=http://127.0.0.1:3000
-ARO_API_KEY=你的 MoviePilot API_TOKEN
-```
-
-### 不同机器
-
-MoviePilot 在 NAS，智能体在 Win / Mac：
-
-```text
-ARO_BASE_URL=http://你的NAS地址:3000
-ARO_API_KEY=你的 MoviePilot API_TOKEN
-```
-
-如果你的客户端支持官方 MCP，也可以直接接：
-
-```text
-http://你的MP地址:3000/api/v1/mcp
-X-API-KEY=你的 MoviePilot API_TOKEN
-```
-
-MCP 更适合查 MoviePilot 管理信息，例如插件列表、下载器状态、站点状态、历史记录、工作流等。
-
-如果你主要想稳定跑资源流，例如 `云盘搜索 / 盘搜 / 影巢 / 转存 / 夸克转存 / 115转存 / 下载 / 更新检查 / 编号选择 / Cookie 修复`，还是推荐继续用 `agent-resource-officer skill / helper`，避免智能体绕过插件规则。
-
-长时间使用同一个微信、WorkBuddy、OpenClaw 或 Hermes 会话后，如果智能体开始把 `15详情` 当成执行、编号接到旧结果、或者一直套用旧格式，可以直接对它说：
-
-```text
-校准影视技能
-```
-
-这会让智能体重新加载影视助手的关键规则。
-
-详细步骤见：
-
-- [外部智能体接入](./docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
-- [跨机器部署](./docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)
-- [Skill 说明](./skills/agent-resource-officer/SKILL.md)
 
 ---
 
