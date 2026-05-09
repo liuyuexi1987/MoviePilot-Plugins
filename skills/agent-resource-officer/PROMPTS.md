@@ -170,7 +170,27 @@
 ```
 
 ```text
-使用 agent-resource-officer skill，用户说“下载 蜘蛛侠”“转存 蜘蛛侠”“夸克转存 蜘蛛侠”“115转存 蜘蛛侠”这类写入命令时，必须保留原话交给 route。插件会先做 MP/TMDB 影片确认；其中“转存”默认等同“115转存”，只有明确说“夸克转存”才走夸克。如果只有一个影片命中，可以继续原写入流程；如果有多个候选，先让用户选影片，选完后再用正确片名和年份继续 PT / 盘搜 / 影巢搜索。不要把这些命令改写成“智能执行 蜘蛛侠”，也不要跳过影片确认。
+使用 agent-resource-officer skill，用户说“下载 蜘蛛侠”“转存 蜘蛛侠”“夸克转存 蜘蛛侠”“115转存 蜘蛛侠”这类写入命令时，必须保留原话交给 route。插件会先做 MP/TMDB 影片确认；其中“下载”只走 MP/PT，先展示 PT 资源列表，不要自动提交下载；“转存”默认等同“115转存”，只有明确说“夸克转存”才走夸克。如果有多个影片候选，先让用户选影片，选完后再用正确片名和年份继续 PT / 盘搜 / 影巢搜索。不要把这些命令改写成“智能执行 蜘蛛侠”，也不要跳过影片确认。
+```
+
+```text
+使用 agent-resource-officer skill，如果用户有多套 MoviePilot，`ARO_BASE_URL` 指向哪一套，资源命令就会发给哪一套。`下载` / `MP搜索` / `PT搜索` 使用目标 MoviePilot 里配置的下载器；本机 Mac/Win MoviePilot 也可能远程控制 NAS qBittorrent。若当前连接的是网盘/STRM 专用 MoviePilot，或它的 `/待整理` 只是云盘整理目录，不要在这套实例里确认 PT 下载，应先让用户把 `ARO_BASE_URL` 切到 NAS 上负责正常下载的 MoviePilot。
+```
+
+```text
+使用 agent-resource-officer skill，如果 Agent影视助手插件设置了 `mp_download_save_path`，PT 下载会显式使用这个 MoviePilot `save_path`。不要在聊天里临时猜路径；这个值必须按目标 MoviePilot/NAS 的真实存储映射配置，例如有效的 `local:/...` 或其他 MoviePilot 支持的存储前缀。
+```
+
+```text
+使用 agent-resource-officer skill，执行“下载 片名”返回 PT 资源列表时，必须原样展示插件 message 里的完整编号列表、做种、体积、评分、建议和下一步提示。不要把结果压缩成“PT资源已列出，回编号选详情或下载”这类一句话摘要。
+```
+
+```text
+使用 agent-resource-officer skill，在 PT 结果列表里，“1”或“下载1”表示给第 1 条生成下载计划；“1详情”才是查看详情。只有插件已经返回“PT 下载计划已生成”之后，用户再回复裸编号“1”或“执行计划”才是确认执行。不要把“下载1”当成旧计划确认。
+```
+
+```text
+使用 agent-resource-officer skill，用户说“校准影视技能”时，运行 python3 scripts/aro_request.py calibrate 或 route "校准影视技能"，把返回的硬规则应用到当前会话，然后只回复“影视技能已校准。”。这个命令用于长线程、微信线程或会话压缩后重新校准资源流语义，避免把“下载”改成云盘转存、把“详情”改成执行。
 ```
 
 ```text
@@ -277,6 +297,8 @@
 1. 资源流命令直接走 agent-resource-officer 的 route/pick，不要先走 MCP、tool_search、curl 或 raw API。资源流包括：云盘搜索、盘搜、影巢、MP搜索、PT搜索、转存、夸克转存、115转存、下载、更新、更新检查、检查、选择、详情、n、下一页和编号续选。
 2. route/pick 默认输出就是适合聊天展示的纯文本 message，请优先原样转发，不要重新改写资源列表；只有需要程序化读取字段时才加 --json-output。
 3. 如果原始输出里有“智能建议”，必须保留；如果没有，也可以在原始列表后追加智能建议。智能建议不限制长短，但必须引用原始编号，不能替代列表、不能重新编号；建议要围绕画质、集数完整度、字幕、体积、来源可靠性、115/夸克明确偏好来写，不要把评分公式或加分项原样展示成理由。
+4. 如果用户有多套 MoviePilot，先确认 `ARO_BASE_URL` 当前指向哪一套。`下载` / `MP搜索` / `PT搜索` 的下载器和保存路径由目标 MoviePilot/qBittorrent 决定；网盘/STRM 专用实例不要用于确认 PT 下载，PT 下载应切到 NAS 上负责正常下载的 MoviePilot。
+5. 如果插件配置了 `mp_download_save_path`，它会作为 PT 下载的显式保存路径；不要自行猜测或覆盖这个路径。
 
 创建后请用 external-agent 输出接入信息，并自测：用户说“盘搜搜索 大君夫人”时走 route；用户再说“选择 3”时沿用同一个 agent:会话ID 走 pick。
 ```

@@ -1,122 +1,122 @@
 # Agent影视助手
 
-`Agent影视助手` 是这个仓库当前最重要的主线插件。
+`Agent影视助手` 是这个仓库的主线插件，重点解决一件事：
 
-如果你是第一次接触这个仓库，优先看这个插件就够了。
+把 `飞书命令入口`、`外部智能体`、`盘搜`、`影巢`、`115`、`夸克`、`MoviePilot 原生搜索 / PT 下载` 收进同一套稳定工作流。
+
+如果你是第一次用这个仓库，先把这个插件跑通就够了。
+
+---
 
 ## 适合谁
 
-适合这些场景：
+- 你想把飞书当成类似 `TG / 企业微信` 的资源命令入口。
+- 你想让 `OpenClaw`、`Hermes`、`WorkBuddy` 这类外部智能体稳定控制 MoviePilot。
+- 你想统一处理“找资源 -> 选资源 -> 转存到 115 / 夸克”的流程。
+- 你也想把 MoviePilot 原生 `MP搜索 / PT搜索 / 下载 / 订阅 / 更新检查` 放进同一套命令入口。
+- 你希望智能体不要自己乱拼影巢、盘搜、115、夸克接口，而是统一交给插件执行。
 
-- 你想把 `飞书` 当成和 `TG / 企业微信` 类似的命令入口，用长连接直接控制 `MoviePilot`，不依赖特殊网络环境和公网暴露
-- 你想统一处理“找资源 -> 选资源 -> 转存到网盘”的流程
-- 你也想把 `MoviePilot` 原生搜索、`PT` 下载、订阅、下载任务这些能力收进同一套命令入口
-- 你既用 `115`，也用 `夸克`
-- 你会同时用 `盘搜`、`影巢`、`MP/PT`
-- 你希望外部智能体不要乱发挥，而是按固定命令稳定执行
+---
 
-## 两种用法
+## 两种主要用法
 
-### 1. 飞书用法
+### 1. 不使用外部智能体，只用飞书命令入口
 
-- 直接把飞书当成一个资源命令入口
-- 不依赖 `OpenClaw`、`Hermes`、`WorkBuddy`
-- 更像 `TG / 企业微信` 机器人命令入口
-- 适合：
-  - 搜资源
-  - 选资源
-  - 转存
-  - 登录 115
-  - 查更新
-  - 触发影巢签到
-- 也能顺手接住一部分 `MoviePilot` 原生能力，比如搜索、下载、订阅和状态查询
+如果你不想接外部智能体，只想要一个命令窗口，可以只配置飞书。
 
-飞书常用命令和接入方式，直接看：
+配好后，直接在飞书里发：
 
-- [`PLUGIN_INSTALL.md`](../docs/PLUGIN_INSTALL.md)
-- [`AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md`](../docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
+```text
+云盘搜索 片名
+盘搜搜索 片名
+影巢搜索 片名
+转存 片名
+夸克转存 片名
+下载 片名
+更新检查 片名
+115登录
+影巢签到
+```
 
-### 2. 外部智能体用法
+这种用法更像 TG / 企业微信机器人入口：飞书负责收消息，插件负责执行。
 
-- 通过 `skill / helper` 调 `Agent影视助手`
-- 由 `OpenClaw`、`Hermes`、`WorkBuddy` 承接会话和执行
-- 更适合：
-  - 会话续接
-  - 计划确认
-  - 自动修复
-  - 复杂工作流
-- 会把 `盘搜`、`影巢`、`115`、`夸克`、`MoviePilot 原生搜索/PT` 这些能力收进同一条统一工作流
-- 如果你要这样用，第一步就是安装 `agent-resource-officer` 的 `skill / helper`
+### 2. 使用外部智能体
 
-最短接入思路是：
+如果你要接 `OpenClaw`、`Hermes`、`WorkBuddy`，建议安装 `agent-resource-officer skill / helper`。
 
-1. `NAS / 本机 MoviePilot` 安装并启用本插件
-2. 智能体所在机器安装 `agent-resource-officer skill / helper`
-3. 配好 `ARO_BASE_URL` 和 `ARO_API_KEY`
-4. 让智能体优先使用固定命令，不要自由改写
+外部智能体负责理解用户需求和展示结果；资源搜索、转存、下载、签到、Cookie 修复都交给插件。
 
-优先阅读：
+重点文档：
 
-- [`agent-resource-officer/SKILL.md`](../skills/agent-resource-officer/SKILL.md)
-- [`AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md`](../docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
-- [`AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md`](../docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)
+- [外部智能体接入](../docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
+- [跨机器部署](../docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)
+- [全部命令](../docs/ALL_COMMANDS.md)
 
-下面这部分说明，默认都按**外部智能体用法**理解。
+---
 
-### 资源搜索
+## 核心命令
 
-- 这是最核心的用户命令层
-- 飞书也能直接发同名命令，但这里只展开外部智能体场景
+### 搜索
 
-- `搜索 <片名>`：普通搜索，默认先盘搜
-- `盘搜搜索 <片名>`：只看盘搜
-- `影巢搜索 <片名>`：只看影巢
-- `云盘搜索 <片名>`：盘搜 + 影巢
-- `MP搜索 <片名>` / `PT搜索 <片名>`：走 MoviePilot 原生搜索/PT
+| 命令 | 作用 |
+|---|---|
+| `搜索 <片名>` | 默认走盘搜 |
+| `盘搜搜索 <片名>` | 只看盘搜 |
+| `影巢搜索 <片名>` | 只看影巢 |
+| `云盘搜索 <片名>` | 盘搜 + 影巢 |
+| `MP搜索 <片名>` / `PT搜索 <片名>` | 走 MoviePilot 原生搜索 / PT 搜索 |
 
-### 资源执行
+### 转存 / 下载
 
-- 这一组命令用于云盘转存和 PT 下载主线
-- 飞书也能直接发同名命令，但这里只展开外部智能体场景
-- 执行前会结合智能评分系统自动择优：
-  - 云盘更看清晰度、HDR/DV、字幕、更新集数、完整度、目录和影巢积分
-  - PT 更看做种数、免费/促销、下载热度、清晰度、字幕和匹配度
-- 如果结果明显够好，会直接走一条龙执行
-- 如果整体质量不够稳，会优先给出候选编号让用户自己选
+| 命令 | 作用 |
+|---|---|
+| `转存 <片名>` | 默认等同 `115转存 <片名>` |
+| `115转存 <片名>` | 搜索后优先转存到 115 |
+| `夸克转存 <片名>` | 搜索后优先转存到夸克 |
+| `下载 <片名>` | 走 MoviePilot 原生 PT 下载链，先生成下载计划 |
 
-- `转存 <片名>`：云盘资源一条龙转存
-- `夸克转存 <片名>`：优先选夸克资源并转存到夸克
-- `115转存 <片名>`：优先选 115 资源并转存到 115
-- `下载 <片名>`：走 MP/PT 下载链
+注意：
 
-### 更新与检查
+- `转存 <片名>` 默认是 115，不会自动改成夸克。
+- 只有明确说 `夸克转存 <片名>` 才走夸克。
+- `下载 <片名>` 是 PT 下载，不是云盘转存。
+- `下载1` 是给当前 PT 结果生成下载计划，不是确认旧计划。
+- 真正下载、转存、解锁、清空目录这类写入动作，都应先经过明确确认。
 
-- 这组命令适合更新判断、签到和状态检查
+### 选择 / 翻页
 
-- `更新检查 <片名>` / `检查 <片名>`
-- `影巢签到`
-- `影巢签到日志`
+```text
+1
+1详情
+下载1
+n
+```
 
-### 维护与修复
+- `1`：继续处理当前第 1 条结果。
+- `1详情`：查看第 1 条详情。
+- `下载1`：给第 1 条 PT 结果生成下载计划。
+- `n`：下一页。
 
-- 这一组更偏外部智能体和本机修复链
-- 其中 `刷新影巢Cookie`、`修复影巢签到`、`刷新夸克Cookie`、`修复夸克转存` 会牵涉本机浏览器 Cookie 导出工具
+完整命令见：[全部命令](../docs/ALL_COMMANDS.md)
 
-- `115登录`
-- `115状态`
-- `清空115转存目录`
-- `清空夸克转存目录`
-- `刷新影巢Cookie`
-- `修复影巢签到`
-- `刷新夸克Cookie`
-- `修复夸克转存`
+---
 
-### MoviePilot 原生能力接入
+## 主要能力
 
-除了云盘资源链，这个插件也已经接进了 `MoviePilot` 原生能力：
+### 云盘资源
 
-- 原生搜索
-- PT 下载
+- 盘搜搜索
+- 影巢搜索 / 解锁
+- 115 转存
+- 夸克转存
+- 云盘更新检查
+- 编号选择、详情、翻页
+- 智能建议与候选推荐
+
+### MoviePilot 原生能力
+
+- MP / PT 搜索
+- PT 下载计划
 - 订阅
 - 下载任务
 - 下载历史
@@ -124,92 +124,68 @@
 - 站点状态 / 下载器状态
 - 热门探索 / 推荐
 
-## 命令文档
+### 账号与修复
 
-如果你想直接查看完整命令，而不是继续读说明，优先看：
+- 115 扫码登录 / 状态检查
+- 影巢签到 / 签到日志
+- 影巢 Cookie 修复
+- 夸克 Cookie 修复
 
-- [`AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md`](../docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
-- [`PLUGIN_INSTALL.md`](../docs/PLUGIN_INSTALL.md)
+Cookie 修复会用到本机浏览器登录态。如果 MoviePilot 在 NAS、智能体在电脑上，修复命令读取的是智能体电脑上的浏览器 Cookie，再写回 NAS 上的 MoviePilot。
+
+---
 
 ## 和旧插件的关系
 
-这个插件的定位是：**把旧的分散能力收成主线。**
+`Agent影视助手` 是把旧的分散能力收成一条主线。
 
-常见旧插件和用途可以简单理解成这样：
+| 旧插件 | 主要用途 | 现在建议 |
+|---|---|---|
+| `FeishuCommandBridgeLong` | 旧飞书入口 | 新环境优先用 Agent影视助手内置飞书入口 |
+| `HdhiveOpenApi` | 影巢独立能力 | 主能力已收进 Agent影视助手 |
+| `QuarkShareSaver` | 夸克独立转存 | 主能力已收进 Agent影视助手 |
+| `HDHiveDailySign` | 旧影巢签到兜底 | 新环境优先走 Agent影视助手修复链 |
 
-| 旧插件 | 主要用途 |
-| --- | --- |
-| `FeishuCommandBridgeLong` | 旧的飞书命令桥接入口 |
-| `HdhiveOpenApi` | 影巢搜索、解锁、账号与配额相关能力 |
-| `QuarkShareSaver` | 夸克分享转存 |
-| `HDHiveDailySign` | 旧的影巢签到与网页 Cookie 兜底 |
+旧组合仍然能用，但更适合兼容老环境；新装建议优先用 `Agent影视助手`。
 
-这几个旧插件常见的依存关系是：
-
-- `FeishuCommandBridgeLong` 负责接收飞书命令
-- `HdhiveOpenApi` 负责影巢搜索、解锁和影巢用户态能力
-- `QuarkShareSaver` 负责夸克分享转存
-- `HDHiveDailySign` 负责旧的影巢签到兜底
-
-也就是说，旧方案通常是：
-
-- 用一个插件收消息
-- 再分别调用不同插件完成影巢、夸克和签到兜底的具体动作
-
-这套旧组合仍然能用，但更适合兼容老环境，不适合作为后续主线继续扩展。
+---
 
 ## 新手最容易踩的坑
 
-### 1. 外部智能体喜欢乱改命令
+### 外部智能体乱改命令
 
-例如：
+常见错误：
 
 - 把 `云盘搜索` 偷换成 `盘搜搜索`
-- 把 `更新检查` 改成普通搜索
-- 把原始结果改写成“推荐资源 / 分析结论”
+- 把 `下载` 当成云盘转存
+- 把 `15详情` 当成 `选择 15`
+- 重排插件返回的编号
 
-如果你接外部智能体，优先看：
+解决方式：让智能体安装并读取 `agent-resource-officer skill`。长线程跑偏时，直接对智能体说：
 
-- [`AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md`](../docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
+```text
+校准影视技能
+```
 
-### 2. 影巢 Cookie 不建议手工抄
+### 跨机器地址填错
 
-如果影巢签到失效，不建议手工找 Cookie。
+如果 MoviePilot 在 NAS，智能体在电脑上，`ARO_BASE_URL` 要填 NAS 地址：
 
-更稳的方式是：
+```text
+ARO_BASE_URL=http://你的NAS地址:3000
+```
 
-- 在浏览器登录 `https://hdhive.com`
-- 然后运行仓库里的本机导出工具：`tools/hdhive-cookie-export/`
+不要填 `127.0.0.1`，那只代表智能体自己这台机器。
 
-### 3. 夸克失败不一定是 Cookie 失效
+### 夸克失败不一定是 Cookie 失效
 
-这些情况不要误判成 Cookie 问题：
+分享受限、分享者封禁、`41031` 不一定是 Cookie 问题。只有明确提示登录态失效时，才优先走夸克 Cookie 修复。
 
-- 分享受限
-- `41031`
-- 分享者封禁
-
-只有明确出现：
-
-- `require login [guest]`
-- `夸克登录态已过期`
-- `当前夸克登录态不足`
-
-才优先走夸克 Cookie 修复。
+---
 
 ## 进一步阅读
 
-如果你只是新手用户，到这里已经够用了。
-
-如果你还想继续看更细的安装、接入和远程用法，再看这些文档：
-
-- [`PLUGIN_INSTALL.md`](../docs/PLUGIN_INSTALL.md)
-- [`AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md`](../docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
-- [`AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md`](../docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)
-- [`AI识别增强 README`](../AIRecognizerEnhancer/README.md)
-
-## 当前状态
-
-- 当前版本：`0.2.68`
-- 当前 helper 版本：`0.1.42`
-- 当前发布页：<https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.2.68>
+- [插件安装说明](../docs/PLUGIN_INSTALL.md)
+- [外部智能体接入](../docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
+- [跨机器部署](../docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)
+- [全部命令](../docs/ALL_COMMANDS.md)

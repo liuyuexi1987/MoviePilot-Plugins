@@ -284,6 +284,7 @@ class FeishuChannel:
         self._event_lock = threading.Lock()
         self._search_cache: Dict[str, Dict[str, Any]] = {}
         self._search_cache_lock = threading.Lock()
+        self._search_cache_limit = 200
 
     @classmethod
     def default_command_whitelist(cls) -> List[str]:
@@ -603,7 +604,7 @@ class FeishuChannel:
             if not arg or not arg.isdigit():
                 self.reply_text(chat_id, open_id, "用法：下载资源 序号\n示例：下载资源 1")
                 return True
-            self.reply_text(chat_id, open_id, f"正在提交第 {arg} 条资源到下载器，请稍候。")
+            self.reply_text(chat_id, open_id, f"正在生成第 {arg} 条资源的下载计划，请稍候。")
             self._run_thread("feishu-media-download", self._run_media_download, int(arg), chat_id, open_id)
             return True
 
@@ -699,7 +700,11 @@ class FeishuChannel:
         self.reply_text(chat_id, open_id, self._execute_media_search(keyword, self._cache_key(chat_id, open_id)))
 
     def _run_media_download(self, index: int, chat_id: str, open_id: str) -> None:
-        self.reply_text(chat_id, open_id, self._execute_media_download(index, self._cache_key(chat_id, open_id)))
+        result = self.plugin.feishu_assistant_route(
+            text=f"下载资源 {index}",
+            session=self._cache_key(chat_id, open_id),
+        )
+        self._reply_result(chat_id, open_id, result)
 
     def _run_media_subscribe(self, keyword: str, immediate: bool, chat_id: str, open_id: str) -> None:
         self.reply_text(chat_id, open_id, self._execute_media_subscribe(keyword, immediate))
@@ -806,14 +811,19 @@ class FeishuChannel:
         context = copy.deepcopy(results[index - 1])
         torrent = context.torrent_info
         try:
+            save_path = ""
+            if self.plugin is not None:
+                save_path = str(getattr(self.plugin, "_mp_download_save_path", "") or "").strip()
             download_id = DownloadChain().download_single(
                 context=context,
                 username="agentresourceofficer-feishu",
                 source="AgentResourceOfficer",
+                save_path=save_path or None,
             )
             if not download_id:
                 return f"下载提交失败：{torrent.title}"
-            return f"已提交下载：{torrent.title}\n站点：{torrent.site_name or '未知站点'}\n任务ID：{download_id}"
+            path_line = f"\n保存路径：{save_path}" if save_path else ""
+            return f"已提交下载：{torrent.title}\n站点：{torrent.site_name or '未知站点'}{path_line}\n任务ID：{download_id}"
         except Exception as exc:
             logger.error(f"[AgentResourceOfficer][Feishu] 下载资源失败：{torrent.title} {exc}\n{traceback.format_exc()}")
             return f"下载资源失败：{torrent.title}\n错误：{exc}"
@@ -1472,8 +1482,22 @@ class FeishuChannel:
 
     def _set_search_cache(self, cache_key: str, keyword: str, mediainfo: Any, results: List[Any]) -> None:
         with self._search_cache_lock:
+            now = time.time()
+            expired_keys = [
+                key
+                for key, item in self._search_cache.items()
+                if now - float((item or {}).get("ts") or 0) > 1800
+            ]
+            for key in expired_keys:
+                self._search_cache.pop(key, None)
+            while len(self._search_cache) >= self._search_cache_limit:
+                oldest_key = min(
+                    self._search_cache,
+                    key=lambda key: float((self._search_cache.get(key) or {}).get("ts") or 0),
+                )
+                self._search_cache.pop(oldest_key, None)
             self._search_cache[cache_key] = {
-                "ts": time.time(),
+                "ts": now,
                 "keyword": keyword,
                 "mediainfo": mediainfo,
                 "results": list(results or []),

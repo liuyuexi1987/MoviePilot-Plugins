@@ -2,20 +2,18 @@
 
 [![Release Preflight](https://github.com/liuyuexi1987/MoviePilot-Plugins/actions/workflows/ci.yml/badge.svg)](https://github.com/liuyuexi1987/MoviePilot-Plugins/actions/workflows/ci.yml)
 
-MoviePilot 插件仓库，核心是两个插件：
+两个插件，解决两个问题：
 
-- **Agent影视助手** — 飞书桥接入口 + 找资源、转存、下载、订阅、签到，一站搞定
-- **AI识别增强** — 影片识别失败时用 LLM 兜底，并沉淀失败样本
+- **Agent影视助手**：飞书桥接入口 + 搜片、转存、下载、订阅、签到，尽量都从一个入口完成
+- **AI识别增强**：文件名识别失败时用 LLM 兜底，并沉淀失败样本与识别词建议
 
-如果你是第一次接触这个仓库，先看这两个就够了。其他插件大多是旧链路兼容、补充能力或自用扩展。
+如果你是第一次接触这个仓库，先看这两个就够了。
 
 ---
 
-## 快速开始
+## 第一步：安装插件
 
-### 1. 先装插件
-
-在 MoviePilot 插件市场添加本仓库：
+MoviePilot -> 插件市场 -> 添加仓库：
 
 ```text
 https://github.com/liuyuexi1987/MoviePilot-Plugins
@@ -28,364 +26,200 @@ Agent影视助手
 AI识别增强
 ```
 
-### 2. 先填插件配置
+其中 `Agent影视助手` 的重点是给外部智能体提供稳定入口，让 `OpenClaw`、`Hermes`、`WorkBuddy` 这类智能体不要自己乱拼影巢、盘搜、115、夸克接口，而是统一交给插件执行。
 
-在 `Agent影视助手` 设置里按需填写：
+如果你主要是接外部智能体，装完插件后先看这里：
 
-- 影巢 OpenAPI Key
-- 盘搜 API 地址
-- 115 默认目录
-- 夸克 Cookie 或 CookieCloud
-- 飞书 / 智能体配置（可选）
-
-### 3. 如果你只想直接用插件
-
-装完插件后，直接在 MoviePilot 或飞书里用这些命令就够了：
-
-```text
-搜索 <片名>
-云盘搜索 <片名>
-转存 <片名>
-夸克转存 <片名>
-下载 <片名>
-更新检查 <片名>
-```
-
-其中 `转存 <片名>` 默认等同 `115转存 <片名>`；只有明确发送 `夸克转存 <片名>` 才会走夸克。
-
-如果只走这条路，到这里就够了。
-如果需要识别兜底，再开启 **AI识别增强**。
-
-### 4. 如果你还要接外部智能体
-
-这一步只针对：
-
-- OpenClaw
-- Hermes
-- WorkBuddy
-
-也就是：**插件已经装好以后，再把它接给外部智能体。**
-
-外部智能体现在有两种接法：
-
-- **官方 MCP 直连**
-  - 适合：支持远程 HTTP MCP 的客户端
-  - 入口：`http://你的MP地址:3000/api/v1/mcp`
-  - 认证：`X-API-KEY: 你的 MoviePilot API_TOKEN`
-  - 特点：可以直接拿到 `MoviePilot` 原生工具，以及插件暴露出来的 `agent_resource_officer_*` 工具
-- **agent-resource-officer skill / helper**
-  - 适合：需要固定命令、资源流约束、会话续接、编号选择、Cookie 修复链
-  - 特点：更贴近当前这套“搜索 -> 选择 -> 转存/下载 -> 更新/修复”的工作流
-
-如果你的客户端已经支持 MCP，建议**先接官方 MCP**；如果你要稳定跑资源流，继续优先用 `skill / helper`。
-
-#### 4.1 同一台机器：MoviePilot 和智能体都在当前电脑
-
-适合：
-
-- MoviePilot 在你现在这台 Mac / Win 电脑
-- OpenClaw / Hermes / WorkBuddy 也在这台电脑
-
-如果你的客户端支持官方 MCP，最短接法是：
-
-```text
-MCP 地址：http://127.0.0.1:3000/api/v1/mcp
-认证头：X-API-KEY=你的 MoviePilot API_TOKEN
-```
-
-然后直接让智能体读取 `MoviePilot` 的 MCP 工具即可。
-
-推荐直接把下面这段发给外部智能体：
-
-```text
-请从这个仓库安装并使用 agent-resource-officer skill：
-https://github.com/liuyuexi1987/MoviePilot-Plugins
-
-如果当前电脑还没有这个仓库，请先执行：
-git clone https://github.com/liuyuexi1987/MoviePilot-Plugins.git
-cd MoviePilot-Plugins
-bash skills/agent-resource-officer/install.sh --dry-run
-bash skills/agent-resource-officer/install.sh
-
-按下面配置完成接入：
-ARO_BASE_URL=http://127.0.0.1:3000
-ARO_API_KEY=你的 MoviePilot API_TOKEN
-
-Cookie 修复工具已经随仓库分发，不需要另外找工具：
-tools/hdhive-cookie-export
-tools/quark-cookie-export
-
-执行 install.sh 后，这两个工具会一起安装到 skill 目录下。后续可以直接用智能体命令调用：
-刷新影巢Cookie
-修复影巢签到
-刷新夸克Cookie
-修复夸克转存
-
-默认不需要配置 ARO_HDHIVE_COOKIE_EXPORT_DIR 或 ARO_QUARK_COOKIE_EXPORT_DIR；只有我明确指定自定义路径时才配置。
-
-安装后请优先读取：
-1. skills/agent-resource-officer/SKILL.md
-2. docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md
-
-接入后必须遵守：
-1. 资源流命令直接走 agent-resource-officer 的 route/pick，不要先走 MCP、tool_search、curl 或 raw API。资源流包括：云盘搜索、盘搜、影巢、MP搜索、PT搜索、转存、夸克转存、115转存、下载、更新、更新检查、检查、选择、详情、n、下一页和编号续选。
-2. route/pick 默认输出就是适合聊天展示的纯文本 message，请优先原样转发，不要重新改写资源列表；只有需要程序化读取字段时才加 --json-output。
-3. 如果原始输出里有“智能建议”，必须保留；如果没有，也可以在原始列表后追加智能建议。智能建议不限制长短，但必须引用原始编号，不能替代列表、不能重新编号。
-4. `转存` 默认就是 `115转存`；只有用户明确说 `夸克转存` 时才走夸克。
-5. 长时间使用同一个微信/WorkBuddy/Claw 线程后，如果出现把“详情”误当成“转存”、编号续接混乱、一直套用旧格式等情况，先清理当前 ARO 会话和智能体线程记忆，再重新读取 skill。不要在普通“更新检查/搜索”前主动清会话。
-
-然后按其中的固定命令和接入规则执行。
-```
-
-如果你的外部智能体不会自动安装 skill，再手动安装 `agent-resource-officer` skill / helper，并在 **智能体所在电脑** 的 helper 配置文件里填写：
-
-```text
-ARO_BASE_URL=http://127.0.0.1:3000
-ARO_API_KEY=你的 MoviePilot API_TOKEN
-```
-
-`ARO_API_KEY` 就是你在 MoviePilot 里启用插件助手接口时使用的 API Token。
-
-常见位置：
-
-- `OpenClaw / WorkBuddy / 类 Claw 环境`：通常在 `~/.workbuddy/skills/agent-resource-officer/`
-- 如果你是从本仓库直接安装：就是仓库里的 `skills/agent-resource-officer/`
-- helper 的实际配置文件通常在：`~/.config/agent-resource-officer/config`
-
-#### 4.2 不同机器：MoviePilot 在 NAS，智能体在 Win / Mac
-
-适合：
-
-- MoviePilot 跑在 NAS / Docker
-- OpenClaw / Hermes / WorkBuddy 跑在你的 Mac / Win
-
-如果你的客户端支持官方 MCP，最短接法是：
-
-```text
-MCP 地址：http://你的NAS地址:3000/api/v1/mcp
-认证头：X-API-KEY=你的 MoviePilot API_TOKEN
-```
-
-然后直接让智能体读取 `MoviePilot` 的 MCP 工具即可。
-
-推荐直接把下面这段发给外部智能体：
-
-```text
-请从这个仓库安装并使用 agent-resource-officer skill：
-https://github.com/liuyuexi1987/MoviePilot-Plugins
-
-如果当前电脑还没有这个仓库，请先执行：
-git clone https://github.com/liuyuexi1987/MoviePilot-Plugins.git
-cd MoviePilot-Plugins
-bash skills/agent-resource-officer/install.sh --dry-run
-bash skills/agent-resource-officer/install.sh
-
-MoviePilot 在 NAS，智能体在当前电脑。
-请按下面配置完成接入：
-ARO_BASE_URL=http://你的NAS地址:3000
-ARO_API_KEY=你的 MoviePilot API_TOKEN
-
-Cookie 修复工具已经随仓库分发，不需要另外找工具：
-tools/hdhive-cookie-export
-tools/quark-cookie-export
-
-执行 install.sh 后，这两个工具会一起安装到 skill 目录下。后续可以直接用智能体命令调用：
-刷新影巢Cookie
-修复影巢签到
-刷新夸克Cookie
-修复夸克转存
-
-默认不需要配置 ARO_HDHIVE_COOKIE_EXPORT_DIR 或 ARO_QUARK_COOKIE_EXPORT_DIR；只有我明确指定自定义路径时才配置。
-
-安装后请优先读取：
-1. skills/agent-resource-officer/SKILL.md
-2. docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md
-3. docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md
-
-接入后必须遵守：
-1. 资源流命令直接走 agent-resource-officer 的 route/pick，不要先走 MCP、tool_search、curl 或 raw API。资源流包括：云盘搜索、盘搜、影巢、MP搜索、PT搜索、转存、夸克转存、115转存、下载、更新、更新检查、检查、选择、详情、n、下一页和编号续选。
-2. route/pick 默认输出就是适合聊天展示的纯文本 message，请优先原样转发，不要重新改写资源列表；只有需要程序化读取字段时才加 --json-output。
-3. 如果原始输出里有“智能建议”，必须保留；如果没有，也可以在原始列表后追加智能建议。智能建议不限制长短，但必须引用原始编号，不能替代列表、不能重新编号。
-4. `转存` 默认就是 `115转存`；只有用户明确说 `夸克转存` 时才走夸克。
-5. 长时间使用同一个微信/WorkBuddy/Claw 线程后，如果出现把“详情”误当成“转存”、编号续接混乱、一直套用旧格式等情况，先清理当前 ARO 会话和智能体线程记忆，再重新读取 skill。不要在普通“更新检查/搜索”前主动清会话。
-
-然后按其中的固定命令和接入规则执行。
-```
-
-如果你的外部智能体不会自动安装 skill，再手动安装 `agent-resource-officer` skill / helper，并在 **Win / Mac 这台智能体电脑** 的 helper 配置文件里填写：
-
-```text
-ARO_BASE_URL=http://你的NAS地址:3000
-ARO_API_KEY=你的 MoviePilot API_TOKEN
-```
-
-常见位置同上。
-
-注意：
-   - `ARO_BASE_URL` 要填 **你的 Win / Mac 真能访问到的 MP 地址**
-   - 不要填 `127.0.0.1`，除非 MP 就在这台电脑上
-   - `盘搜 API 地址` 要按 **NAS 上 MoviePilot 容器能访问到的地址** 填
-
-如果后面要用：
-   - `刷新影巢Cookie`
-   - `刷新夸克Cookie`
-
-   先在 **当前 Win / Mac 浏览器** 登录对应网站，因为 Cookie 是从你这台电脑浏览器导出的，再写回 NAS 上的 MoviePilot。
-
-#### 4.3 长线程用久了怎么维护
-
-外部智能体接微信、飞书、WorkBuddy 或 Claw 这类长线程时，用久了可能会因为上下文压缩、旧测试记录、旧 memory 影响判断，表现为：
-
-- 明明说 `16详情`，却被改写成 `选择 16`
-- 编号续接到了很久以前的搜索结果
-- 反复套用旧的展示格式或旧提示词
-
-这时不要急着改插件，先清理当前会话上下文：
-
-```bash
-python3 skills/agent-resource-officer/scripts/aro_request.py session-clear --session default
-python3 skills/agent-resource-officer/scripts/aro_request.py plans-clear --session default
-```
-
-如果你的外部智能体使用固定群聊/用户 session，例如 `agent:wechat-room-1`，把上面的 `default` 换成实际 session。
-
-同时让智能体重新读取：
-
-```text
-skills/agent-resource-officer/SKILL.md
-docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md
-```
-
-注意：不要在普通 `搜索 / 更新检查 / 检查` 前自动清会话，否则会破坏正常的编号续接。只有长线程明显跑偏、测试很久、或你明确要求“清空会话/重置上下文”时才清。
+[外部智能体接入 Agent影视助手](./docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
 
 ---
 
-## 两个主线插件
+## 第二步：填配置
 
-### Agent影视助手
+打开 `Agent影视助手` 设置页面，按你要用的功能填写：
 
-一个插件收口所有主工作流：
+| 你想用的功能 | 需要填什么 |
+|---|---|
+| 盘搜搜索 | `盘搜 API 地址` |
+| 影巢搜索 | `影巢 OpenAPI Key` |
+| 115 转存 | `115 默认目录`，然后走 `115登录` 扫码 |
+| 夸克转存 | `夸克 Cookie` 或 `CookieCloud` |
+| 飞书入口 | 飞书应用的 `App ID` / `App Secret` |
+| PT 下载 | 一般只要 MoviePilot 原生下载器正常即可；如果 MP 和 qB 不在一台机器，可额外填写 `PT 下载保存路径` |
 
-| 能力 | 包含 |
-|------|------|
-| 云盘资源 | 搜索（盘搜 / 影巢 / 云盘）· 转存（115 / 夸克）· 更新检查 · 目录命名建议 |
-| 原生 MP/PT | MP搜索 · PT搜索 · 歧义片名先选 MP/TMDB 候选 · 下载 · 订阅 · 任务 / 历史 / 站点查询 · 热门推荐 |
-| 115 / 夸克 / 影巢 | 登录检查 · 状态查询 · Cookie刷新 · 签到 · 转存目录清理 |
-| 外部入口 | 飞书长连接 · OpenClaw / Hermes / WorkBuddy 兼容 · 会话续接 · 编号选择 |
+不用的功能可以不填，插件会自动跳过。
 
-详细说明：[Agent影视助手](./AgentResourceOfficer/README.md)
+---
 
-### AI识别增强
+## 第三步：直接开始用
 
-它和 MP 原生识别的区别可以简单理解成：
+装好、填好配置后，直接在 MoviePilot、飞书，或者外部智能体里发这些命令：
 
-| | MP 原生 | AI识别增强 |
-|---|---------|------------|
-| 定位 | 一次性自动补救 | 失败样本治理层 |
-| 能力 | 失败后智能助手接管一次 | 保存失败样本 · 生成识别词建议 · 回放 / 复查 / 批量出队 |
+### 搜索
 
-适用场景：
+```text
+MP搜索 流浪地球2
+搜索 流浪地球2
+影巢搜索 流浪地球2
+云盘搜索 流浪地球2
+```
 
-- 命名混乱
-- 网盘挂载
-- 手动整理失败
-- 同类资源反复识别错
+- `MP搜索` / `PT搜索`：走 MoviePilot 原生 PT 搜索
+- `搜索`：默认走盘搜
+- `云盘搜索`：盘搜 + 影巢一起搜
 
-详细说明：[AI识别增强](./AIRecognizerEnhancer/README.md)
+### 转存 / 下载
+
+```text
+转存 流浪地球2
+115转存 流浪地球2
+夸克转存 流浪地球2
+下载 流浪地球2
+```
+
+- `转存 <片名>` 默认等同 `115转存 <片名>`
+- 只有明确发送 `夸克转存 <片名>` 才会走夸克
+- `下载 <片名>` 走 MoviePilot 原生 PT 下载链，先找片、再生成下载计划
+
+### 选择与翻页
+
+```text
+1
+1详情
+下载1
+n
+```
+
+- `1`：继续处理当前第 1 条结果
+- `1详情`：查看第 1 条详情
+- `下载1`：给第 1 条 PT 结果生成下载计划，不会立刻下载
+- `n`：下一页
+
+### 其他常用
+
+```text
+订阅 流浪地球2
+更新检查 流浪地球2
+115登录
+影巢签到
+```
+
+完整命令见：[全部命令](./docs/ALL_COMMANDS.md)
+
+---
+
+## 飞书怎么用
+
+如果不使用外部智能体，只想用命令功能，也可以只配置飞书入口。
+
+配好飞书后，它就像 TG / 企业微信一样，可以作为 MoviePilot 的资源命令入口。你直接在飞书里发命令，插件会在 MoviePilot 里完成搜索、转存、下载、签到等操作。
+
+| 飞书里发什么 | 会做什么 |
+|---|---|
+| `MP搜索 流浪地球2` | PT 搜索 |
+| `盘搜搜索 流浪地球2` | 盘搜搜索 |
+| `影巢搜索 流浪地球2` | 影巢搜索 |
+| `云盘搜索 流浪地球2` | 盘搜 + 影巢 |
+| `下载资源 1` | 下载第 1 条 PT 结果 |
+| `选择 1` | 继续处理第 1 条当前结果 |
+| `帮助` | 查看帮助 |
+
+飞书里还有一些快捷别名，但新手直接用完整命令最稳。
+
+---
+
+## AI识别增强是做什么的
+
+MoviePilot 整理文件时，会先识别文件名里的片名、年份、季、集。
+
+如果原生识别失败，`AI识别增强` 会：
+
+1. 用当前 MoviePilot 配置好的 LLM 做一次结构化识别
+2. 把识别结果交回 MoviePilot，继续走原生整理链
+3. 保存失败样本，方便后续生成自定义识别词
+
+它不会绕过 MoviePilot 原生整理流程，只是在识别环节加了一层兜底。
+
+详细说明见：[AI识别增强](./AIRecognizerEnhancer/README.md)
 
 ---
 
 ## 外部智能体接入
 
-如果你已经按上面的“同一台机器”或“不同机器”完成了配置，这里再继续看详细文档：
+如果你要让 `OpenClaw`、`Hermes`、`WorkBuddy` 这类外部智能体控制 MoviePilot，再看这一节。
 
-- [Skill 说明](./skills/agent-resource-officer/SKILL.md)
+### 同一台机器
+
+MoviePilot 和智能体都在当前电脑：
+
+```text
+ARO_BASE_URL=http://127.0.0.1:3000
+ARO_API_KEY=你的 MoviePilot API_TOKEN
+```
+
+### 不同机器
+
+MoviePilot 在 NAS，智能体在 Win / Mac：
+
+```text
+ARO_BASE_URL=http://你的NAS地址:3000
+ARO_API_KEY=你的 MoviePilot API_TOKEN
+```
+
+如果你的客户端支持官方 MCP，也可以直接接：
+
+```text
+http://你的MP地址:3000/api/v1/mcp
+X-API-KEY=你的 MoviePilot API_TOKEN
+```
+
+不过如果你主要想稳定跑资源流，还是推荐继续用 `agent-resource-officer skill / helper`。
+
+详细步骤见：
+
 - [外部智能体接入](./docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
-- [跨机器部署说明](./docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)
+- [跨机器部署](./docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)
+- [Skill 说明](./skills/agent-resource-officer/SKILL.md)
 
 ---
 
-## 旧组合方案
+## 旧插件还要不要用
 
-在 `Agent影视助手` 成为主线之前，这个仓库常见的老组合是：
+下面这些老插件还在仓库里，但新装一般不再推荐优先用它们：
 
-- `FeishuCommandBridgeLong`
-- `QuarkShareSaver`
-- `HdhiveOpenApi`
+| 旧插件 | 主要用途 | 现在的建议 |
+|---|---|---|
+| `FeishuCommandBridgeLong` | 旧飞书入口 | 新环境优先用 Agent影视助手内置飞书入口 |
+| `HdhiveOpenApi` | 影巢独立能力 | 已被 Agent影视助手主线吸收 |
+| `QuarkShareSaver` | 夸克独立转存 | 已被 Agent影视助手主线吸收 |
 
-这几条旧链路放在一起时，分工大致是：
-
-- `FeishuCommandBridgeLong`
-  - 负责飞书消息入口
-  - 把“搜索、选择、转存、115 登录”这些动作从聊天消息转成插件调用
-- `HdhiveOpenApi`
-  - 负责影巢搜索、解锁、签到、配额查询
-  - 处理“先搜影巢，再解锁资源”这条链
-- `QuarkShareSaver`
-  - 负责夸克分享链接的实际转存
-  - 是夸克侧的轻量执行层
-
-把它们拼起来以后，整体效果就是：
-
-- 飞书里发命令
-- 飞书桥接负责接收和分流
-- 影巢插件负责搜影巢和解锁
-- 夸克插件负责夸克转存
-
-这套老方案现在仍然能用，但问题也很明显：
-
-- 插件分散
-- 会话分散
-- 失败恢复分散
-- 外部智能体接入不统一
-
-所以现在更推荐直接使用：
-
-- `Agent影视助手`
-
-它本质上就是把上面这条旧组合主线，尽量收拢成一个统一入口。
+如果你是老环境兼容，可以继续保留；如果是新装，优先直接用 `Agent影视助手`。
 
 ---
 
 ## 全部插件
 
-下面是当前仓库里所有主要插件。首页只给一行说明；详细作用、配置和用法请点进去看各自 README。
-
-| 插件 | 当前版本 | 主要作用 | 详细说明 |
-| --- | --- | --- | --- |
-| Agent影视助手 | `0.2.68` | `AgentResourceOfficer`。当前主线插件，统一承接盘搜、影巢、115、夸克、更新检查、Cookie 修复和智能体入口 | [查看说明](./AgentResourceOfficer/README.md) |
-| AI识别增强 | `0.1.12` | `AIRecognizerEnhancer`。MoviePilot 原生识别失败后的本地 LLM 兜底和失败样本治理 | [查看说明](./AIRecognizerEnhancer/README.md) |
-| 飞书命令桥接 | `0.5.26` | `FeishuCommandBridgeLong`。旧飞书长连接兼容/备份入口；新环境优先使用 Agent影视助手内置入口 | [查看说明](./FeishuCommandBridgeLong/README.md) |
-| 影巢 OpenAPI | `0.3.0` | `HdhiveOpenApi`。影巢搜索、解锁、签到、配额查询、115 转存的独立 OpenAPI 插件 | [查看说明](./HdhiveOpenApi/README.md) |
-| 夸克分享转存 | `0.1.0` | `QuarkShareSaver`。夸克分享链接直转自己的夸克目录，适合作为轻量执行入口 | [查看说明](./QuarkShareSaver/README.md) |
+| 插件 | 版本 | 说明 |
+|---|---|---|
+| Agent影视助手 | `0.2.68` | 当前主线插件，统一承接盘搜、影巢、115、夸克、PT 下载、飞书入口和外部智能体入口 |
+| AI识别增强 | `0.1.12` | MoviePilot 原生识别失败后的本地 LLM 兜底和失败样本治理 |
+| 飞书命令桥接 | `0.5.26` | 旧飞书长连接入口，更多用于兼容老链路 |
+| 影巢 OpenAPI | `0.3.0` | 旧影巢独立插件，主能力已收进 Agent影视助手 |
+| 夸克分享转存 | `0.1.0` | 旧夸克独立插件，主能力已收进 Agent影视助手 |
 
 ---
 
 ## 相关文档
 
+- [全部命令](./docs/ALL_COMMANDS.md)
 - [文档索引](./docs/INDEX.md)
 - [插件安装说明](./docs/PLUGIN_INSTALL.md)
-- [外部智能体接入](./docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
-- [跨机器部署说明](./docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)
 - [Cookie 导出工具](./tools/README.md)
+- [Agent影视助手详细说明](./AgentResourceOfficer/README.md)
+- [AI识别增强详细说明](./AIRecognizerEnhancer/README.md)
 
 ---
 
-## 当前状态
-
-- 当前推荐主线插件：`Agent影视助手`
-- 当前发布版本：`0.2.68`
-- 当前版本汇总见下：
-
-当前版本：
-
-- `0.2.68`
-- 当前插件版本：`0.2.68`
-- 当前 Skill helper 版本：`0.1.42`
-- 当前仓库许可证：`GPL-3.0`
-- 当前发布页：[v0.2.68](https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.2.68)
-- 维护命令说明：[`docs/MAINTENANCE_COMMANDS.md`](./docs/MAINTENANCE_COMMANDS.md)
-
 ## 许可证
 
-本仓库当前使用 `GPL-3.0`。
+GPL-3.0
