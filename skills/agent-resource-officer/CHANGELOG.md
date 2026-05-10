@@ -1,5 +1,11 @@
 # agent-resource-officer changelog
 
+## 0.1.46
+
+- Added calibration guidance for long-running external-agent sessions with `校准影视技能`.
+- Tightened title-resource routing so `下载` stays on MP/PT, `转存` defaults to 115, and explicit Quark transfer remains opt-in.
+- Documented Cookie refresh and repair flows for Quark and HDHive browser-cookie recovery.
+
 ## 0.1.42
 
 - Added `quark-cookie-refresh` to run the local Quark browser-cookie export tool, write the full webpage cookie back into MoviePilot/AgentResourceOfficer, and restart `moviepilot-v2`.
