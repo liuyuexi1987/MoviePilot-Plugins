@@ -342,31 +342,104 @@ class QuarkTransferService:
         return True, result, ""
 
     def delete_items(self, items: List[Dict[str, Any]]) -> Tuple[bool, Dict[str, Any], str]:
+        source_items = [item for item in (items or []) if isinstance(item, dict)]
+
+        def build_fids(candidates: List[Dict[str, Any]]) -> List[str]:
+            result: List[str] = []
+            for item in candidates:
+                fid = self.clean_text(item.get("fid"))
+                if fid:
+                    result.append(fid)
+            return result
+
+        def item_label(item: Dict[str, Any]) -> str:
+            return self.clean_text(item.get("name") or item.get("file_name") or item.get("fid"))
+
+        def call_delete(candidates: List[Dict[str, Any]]) -> Tuple[bool, Dict[str, Any], str]:
+            fids = build_fids(candidates)
+            if not fids:
+                return False, {}, "默认目录当前层没有可删除项目"
+            payloads = [
+                {
+                    "action_type": 2,
+                    "exclude_fids": [],
+                    "filelist": [{"fid": fid} for fid in fids],
+                },
+                {
+                    "action_type": 2,
+                    "exclude_fids": [],
+                    "filelist": fids,
+                },
+                {
+                    # Some web scripts historically used this misspelled key.
+                    "actoin_type": 2,
+                    "exclude_fids": [],
+                    "filelist": fids,
+                },
+            ]
+            last_data: Dict[str, Any] = {}
+            last_message = ""
+            for index, payload in enumerate(payloads, start=1):
+                ok, data, message = self._request(
+                    "POST",
+                    "https://drive-pc.quark.cn/1/clouddrive/file/delete",
+                    params={
+                        "pr": "ucpro",
+                        "fr": "pc",
+                        "uc_param_str": "",
+                    },
+                    json_body=payload,
+                )
+                if ok:
+                    if isinstance(data, dict):
+                        data["delete_payload_variant"] = index
+                    return True, data, ""
+                last_data = data if isinstance(data, dict) else {}
+                last_message = message or last_message
+            return False, last_data, last_message or "夸克删除失败"
+
         filelist: List[Dict[str, Any]] = []
-        for item in items or []:
+        for item in source_items:
             fid = self.clean_text((item or {}).get("fid")) if isinstance(item, dict) else ""
             if fid:
                 filelist.append({"fid": fid})
         if not filelist:
             return False, {}, "默认目录当前层没有可删除项目"
 
-        ok, data, message = self._request(
-            "POST",
-            "https://drive-pc.quark.cn/1/clouddrive/file/delete",
-            params={
-                "pr": "ucpro",
-                "fr": "pc",
-                "uc_param_str": "",
-            },
-            json_body={
-                "action_type": 2,
-                "exclude_fids": [],
-                "filelist": filelist,
-            },
-        )
-        if not ok:
-            return False, data, message or "夸克批量删除失败"
-        return True, data, ""
+        ok, data, message = call_delete(source_items)
+        if ok:
+            data["deleted_count"] = len(filelist)
+            data["delete_mode"] = "batch"
+            return True, data, ""
+
+        if len(source_items) <= 1:
+            return False, data, message or "夸克删除失败"
+
+        deleted_count = 0
+        failed_items: List[Dict[str, Any]] = []
+        for item in source_items:
+            single_ok, single_data, single_message = call_delete([item])
+            if single_ok:
+                deleted_count += 1
+                continue
+            failed_items.append({
+                "fid": self.clean_text(item.get("fid")),
+                "name": item_label(item),
+                "message": single_message or "删除失败",
+                "result": single_data,
+            })
+
+        result = {
+            "deleted_count": deleted_count,
+            "failed_count": len(failed_items),
+            "failed_items": failed_items[:20],
+            "delete_mode": "single_fallback",
+            "batch_error": message or "夸克批量删除失败",
+            "batch_result": data,
+        }
+        if failed_items:
+            return False, result, f"夸克逐项删除后仍有 {len(failed_items)} 项失败"
+        return True, result, ""
 
     def clear_directory(self, path: str = "") -> Tuple[bool, Dict[str, Any], str]:
         ok, target_fid, normalized_path = self.ensure_target_dir(path or self.default_target_path)
@@ -391,20 +464,23 @@ class QuarkTransferService:
             }, "默认目录当前层为空"
 
         ok, delete_result, message = self.delete_items(children)
+        removed_count = self.safe_int((delete_result or {}).get("deleted_count"), len(children) if ok else 0)
         if not ok:
             return False, {
                 "target_path": normalized_path,
                 "target_fid": target_fid,
                 "file_count": len(files),
                 "folder_count": len(folders),
+                "removed_count": removed_count,
                 "items": [self.clean_text(item.get("name")) for item in children[:20]],
+                "failed_items": (delete_result or {}).get("failed_items") or [],
                 "delete_result": delete_result,
             }, message or "夸克清空默认目录失败"
 
         return True, {
             "target_path": normalized_path,
             "target_fid": target_fid,
-            "removed_count": len(children),
+            "removed_count": removed_count,
             "file_count": len(files),
             "folder_count": len(folders),
             "items": [self.clean_text(item.get("name")) for item in children[:20]],

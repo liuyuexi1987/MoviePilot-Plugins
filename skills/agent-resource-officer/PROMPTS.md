@@ -6,6 +6,32 @@
 使用 agent-resource-officer skill，先调用 auto，自动读取 startup 和推荐 request_templates。
 ```
 
+## MCP Guardrail
+
+```text
+如果当前客户端没有明确接入 MoviePilot 官方 MCP，或者当前会话里看不到 MoviePilot MCP 工具，就不要声称自己在用 MCP。此时继续使用 agent-resource-officer skill/helper。MCP 只优先用于插件列表、下载器状态、站点状态、历史记录这类管理查询；片名资源流不走 MCP 优先。资源工作流、编号选择、分页、Cookie 修复仍优先走 agent-resource-officer。
+```
+
+```text
+如果当前会话已经存在对应的 mcp__moviepilot__* 工具，而用户要查的是 MoviePilot 管理信息（例如插件列表、下载器状态、站点状态、下载历史、入库历史、工作流、调度器），就直接调用 MCP，不要先绕回 agent-resource-officer raw GET，也不要先试 curl。
+```
+
+```text
+如果用户命令明显是资源流，例如“云盘搜索/盘搜/影巢/MP搜索/PT搜索/转存/夸克转存/115转存/下载/更新/更新检查/检查/选择/详情/n/下一页/编号”，不要先调用 MCP、tool_search、curl 或 raw API 探测，直接使用 agent-resource-officer helper 的 route/pick。
+```
+
+```text
+如果用户明确说“MP搜索 / MP 搜索 / PT搜索 / PT 搜索 + 片名”，必须原样调用 route，不要改写成“搜索/盘搜搜索/云盘搜索/智能搜索”。这是用户指定 MoviePilot 原生/PT 搜索，不是普通盘搜。
+```
+
+```text
+如果当前客户端没有 MoviePilot MCP 工具，处理“MP搜索 / MP 搜索 / PT搜索 / PT 搜索”时不要输出“MCP 不可用所以改走盘搜”。正确做法是直接执行 agent-resource-officer helper：route "<用户原话>"，并原样转发返回结果。
+```
+
+```text
+处理“MP 搜索 罪无可逃”这类片名资源命令时，第一步只能是运行：python3 scripts/aro_request.py route "MP 搜索 罪无可逃" --session <session>。不要先调用 search_media、search_torrents、TMDB、MoviePilot raw API 或 MCP。
+```
+
 ## Low Token Auto
 
 ```text
@@ -73,7 +99,8 @@
 ## Update Check
 
 ```text
-使用 agent-resource-officer skill，更新检查“大君夫人”。这条入口必须先直接调用 route "更新检查 大君夫人"，不要先清空会话，不要先网页搜索，不要先走影巢候选。先把官方参考进度、盘搜最新集资源、影巢最新集资源原样展示给我，再让我自己选编号。
+使用 agent-resource-officer skill，更新检查“大君夫人”。这条入口必须先直接调用 route "更新检查 大君夫人"，不要先清空会话，不要先网页搜索，不要先走影巢候选。先把TMDB 参考进度、盘搜最新集资源、影巢最新集资源原样展示给我，再让我自己选编号。
+更新检查返回后必须原样保留插件 message 的 emoji 分区和条目行，例如 `🟨 盘搜结果`、`🟦 影巢结果`、`🗄 #25 夸克`、`📺 #1 115`、`🕒05/02`、`📌 E01-E09`。不要改写成 `#: ... 来源: ... 详情: ... 日期: ...` 这种字段表，也不要把条目压缩成总结。
 ```
 
 ```text
@@ -127,17 +154,67 @@
 ```
 
 ```text
+使用 agent-resource-officer skill，普通 route/pick 命令默认已经输出适合聊天展示的纯文本 message。请优先原样转发这段输出，不要重新解析后再自己生成资源列表。只有需要读取结构化字段时，才给命令加 --json-output。
+```
+
+```text
+使用 agent-resource-officer skill，展示盘搜结果时，保留“🟦 115 结果 / 🟨 夸克结果”分组标题，但每条资源不要再写 `[115]` 或 `[quark]`。条目格式用“编号. 📺 标题”或“编号. 🗄 标题”，日期保留时钟标记，例如“— 🕒05/07”或插件返回的 display_datetime。如果当前聊天前端会把换行折叠成一段，请把资源列表放进 text 代码块，或至少在分组标题后保留一个空行，确保夸克结果逐条换行显示。
+```
+
+```text
+使用 agent-resource-officer skill，搜索结果列表不要展示 115/夸克原始分享链接。链接只在“选择 编号 详情”的复制友好详情卡片里展示。
+```
+
+```text
+使用 agent-resource-officer skill，用户说“15详情”“15 的详情”“我要看看 15 的详情”“看十六详情”“详情十六”这类话时，必须当成继续当前编号会话并查看详情，不要执行转存/下载。优先原样调用 route/pick；如果你需要改写命令，只能改写成“选择 15 详情”这一类保留“详情”的命令，绝对不要改成“选择 15”或单独数字。
+```
+
+```text
+使用 agent-resource-officer skill，用户说“下载 蜘蛛侠”“转存 蜘蛛侠”“夸克转存 蜘蛛侠”“115转存 蜘蛛侠”这类写入命令时，必须保留原话交给 route。插件会先做 MP/TMDB 影片确认；其中“下载”只走 MP/PT，先展示 PT 资源列表，不要自动提交下载；“转存”默认等同“115转存”，只有明确说“夸克转存”才走夸克。如果有多个影片候选，先让用户选影片，选完后再用正确片名和年份继续 PT / 盘搜 / 影巢搜索。不要把这些命令改写成“智能执行 蜘蛛侠”，也不要跳过影片确认。
+```
+
+```text
+使用 agent-resource-officer skill，如果用户有多套 MoviePilot，`ARO_BASE_URL` 指向哪一套，资源命令就会发给哪一套。`下载` / `MP搜索` / `PT搜索` 使用目标 MoviePilot 里配置的下载器；本机 Mac/Win MoviePilot 也可能远程控制 NAS qBittorrent。若当前连接的是网盘/STRM 专用 MoviePilot，或它的 `/待整理` 只是云盘整理目录，不要在这套实例里确认 PT 下载，应先让用户把 `ARO_BASE_URL` 切到 NAS 上负责正常下载的 MoviePilot。
+```
+
+```text
+使用 agent-resource-officer skill，如果 Agent影视助手插件设置了 `mp_download_save_path`，PT 下载会显式使用这个 MoviePilot `save_path`。不要在聊天里临时猜路径；这个值必须按目标 MoviePilot/NAS 的真实存储映射配置，例如有效的 `local:/...` 或其他 MoviePilot 支持的存储前缀。
+```
+
+```text
+使用 agent-resource-officer skill，执行“下载 片名”返回 PT 资源列表时，必须原样展示插件 message 里的完整编号列表、做种、体积、评分、建议和下一步提示。不要把结果压缩成“PT资源已列出，回编号选详情或下载”这类一句话摘要。
+```
+
+```text
+使用 agent-resource-officer skill，在 PT 结果列表里，“1”或“下载1”表示给第 1 条生成下载计划；“1详情”才是查看详情。只有插件已经返回“PT 下载计划已生成”之后，用户再回复裸编号“1”或“执行计划”才是确认执行。不要把“下载1”当成旧计划确认。
+```
+
+```text
+使用 agent-resource-officer skill，用户说“校准影视技能”时，运行 python3 scripts/aro_request.py calibrate 或 route "校准影视技能"，把返回的硬规则应用到当前会话，然后只回复“影视技能已校准。”。这个命令用于长线程、微信线程或会话压缩后重新校准资源流语义，避免把“下载”改成云盘转存、把“详情”改成执行。
+```
+
+```text
+使用 agent-resource-officer skill，展示影巢资源结果时，也按“🟦 115 结果 / 🟨 夸克结果”分组展示。每条资源用纯数字编号，格式类似“1. 📺/🗄 标题 · 免费/积分 · 大小 · 集数 · 规格”，不要写成“#1”。在 WorkBuddy 这类 Markdown 前端，每条资源之间保留一个空行，避免压成一个长段落。可以在列表后追加“智能建议”，但必须引用原编号，不能替代列表；需要复制链接或完整信息时，引导使用“选择 编号 详情”。
+```
+
+```text
+使用 agent-resource-officer skill，资源列表后可以保留或追加“智能建议”。顺序必须是：先完整展示原始编号列表，再单独写“智能建议：”。智能建议不限制长短，可以自然分析取舍，但必须引用原编号；不要用建议替代列表，不要重新编号。建议口吻要像真人帮用户挑资源，重点讲画质、集数完整度、字幕、体积、来源可靠性、115/夸克明确偏好；不要把评分公式或“4K +25”这类加分项当成主要理由。
+```
+
+```text
 使用 agent-resource-officer skill，如果我说“把刚才那个 22 转存”“原来的 #22”“下载 10”“选择 14”这类话，先把它当成继续上一轮编号会话，不要先重新搜索。优先复用当前 session，或用 decide / sessions / session 恢复最近一轮匹配会话，然后直接 pick 对应编号。只有会话真的不存在时，才允许重搜，并明确告诉我编号已经重建。
 ```
 
 ```text
-使用 agent-resource-officer skill，如果“影巢搜索”因为暂无结果而自动补查盘搜，或“云盘搜索”里的影巢段没有展开，优先原样展示插件返回。不要把它改写成“有新集了”“现在两边都有了”“最高分如下”这类摘要；必须保留原始编号、原始链接和下一步提示。
+使用 agent-resource-officer skill，如果“影巢搜索”因为暂无结果而自动补查盘搜，或“云盘搜索”里的影巢段没有展开，优先原样展示插件返回。不要把它改写成只剩“有新集了”“现在两边都有了”“最高分如下”这类摘要；必须保留原始编号、原始链接和下一步提示。可以在列表后追加智能建议，建议不限制长短。
 ```
 
 ## PT Search
 
 ```text
 使用 agent-resource-officer skill，PT搜索“蜘蛛侠”。这条入口等同于 MP搜索，走 MoviePilot 原生 PT 搜索和评分。
+如果插件先返回 MP/TMDB 候选列表，不要替用户默认选第一项；把候选列表展示出来，让我回复编号后再继续搜索 PT 资源。
+展示 PT 结果时必须原样保留插件返回的 message，不要重新压缩成自己的列表，不要改写英文发布标题；插件标题里有防止微信误识别链接的隐藏断点，也有为手机微信阅读准备的 emoji 标记，必须保留。
 ```
 
 ## HDHive Search
@@ -200,7 +277,9 @@
 你是 MoviePilot Agent影视助手的外部智能体入口。不要直接调用影巢、115、夸克、盘搜底层 API；所有搜索、选择、转存、115 状态都只调用 AgentResourceOfficer。每个用户或群聊固定使用 session=agent:会话ID。新会话先 startup；用户发搜索/链接时调用 route；用户发选择/详情/下一页时调用 pick。不要输出 API Key、Cookie、Token。
 展示资源列表时，不要压缩掉关键字段：网盘、解锁分、大小、清晰度、来源、集数/更新信息、字幕、详情摘要都要尽量保留。
 用户只说“搜索/找 某片”时，先原样透传给 route，不要擅自续跑旧 session，也不要先脑补成影巢候选选择。默认搜索应先走盘搜；只有用户明确说“影巢搜索”才进影巢，明确说“MP搜索/PT搜索”才进 MP/PT。
-用户只说“更新/查更新 某片”时，先原样透传给 route，并优先走“更新检查 某片”；不要先清空会话，不要先影巢候选，不要先网页搜索。更新检查的职责是直接列出官方参考进度、盘搜最新集资源、影巢最新集资源，让用户自己判断和选择编号。
+用户明确说“MP搜索 / MP 搜索 / PT搜索 / PT 搜索 某片”时，必须保持原命令进入 route，不要改写为“搜索/盘搜搜索/云盘搜索/智能搜索”。
+只有用户明确说“智能搜索 / 资源决策 / 智能决策”时，才进入跨来源智能决策；不要把普通明确来源命令自动升级成智能决策。
+用户只说“更新/查更新 某片”时，先原样透传给 route，并优先走“更新检查 某片”；不要先清空会话，不要先影巢候选，不要先网页搜索。更新检查的职责是直接列出TMDB 参考进度、盘搜最新集资源、影巢最新集资源，让用户自己判断和选择编号。
 ```
 
 ## External Agent Helper
@@ -212,7 +291,16 @@
 ## Ask Another Agent To Create Skill
 
 ```text
-请阅读 https://github.com/liuyuexi1987/MoviePilot-Plugins ，重点阅读 docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md、skills/agent-resource-officer/SKILL.md、skills/agent-resource-officer/EXTERNAL_AGENTS.md。然后在你的环境里创建或安装 agent-resource-officer Skill。Skill 里只固化通用流程、工具调用方式、session 规则和错误处理，不要写入 API Key、Cookie、Token。创建后请用 external-agent 输出接入信息，并自测：用户说“盘搜搜索 大君夫人”时走 route；用户再说“选择 3”时沿用同一个 agent:会话ID 走 pick。
+请阅读 https://github.com/liuyuexi1987/MoviePilot-Plugins ，重点阅读 docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md、skills/agent-resource-officer/SKILL.md、skills/agent-resource-officer/EXTERNAL_AGENTS.md。然后在你的环境里创建或安装 agent-resource-officer Skill。Skill 里只固化通用流程、工具调用方式、session 规则和错误处理，不要写入 API Key、Cookie、Token。
+
+创建的 Skill 必须写入这些硬规则：
+1. 资源流命令直接走 agent-resource-officer 的 route/pick，不要先走 MCP、tool_search、curl 或 raw API。资源流包括：云盘搜索、盘搜、影巢、MP搜索、PT搜索、转存、夸克转存、115转存、下载、更新、更新检查、检查、选择、详情、n、下一页和编号续选。
+2. route/pick 默认输出就是适合聊天展示的纯文本 message，请优先原样转发，不要重新改写资源列表；只有需要程序化读取字段时才加 --json-output。
+3. 如果原始输出里有“智能建议”，必须保留；如果没有，也可以在原始列表后追加智能建议。智能建议不限制长短，但必须引用原始编号，不能替代列表、不能重新编号；建议要围绕画质、集数完整度、字幕、体积、来源可靠性、115/夸克明确偏好来写，不要把评分公式或加分项原样展示成理由。
+4. 如果用户有多套 MoviePilot，先确认 `ARO_BASE_URL` 当前指向哪一套。`下载` / `MP搜索` / `PT搜索` 的下载器和保存路径由目标 MoviePilot/qBittorrent 决定；网盘/STRM 专用实例不要用于确认 PT 下载，PT 下载应切到 NAS 上负责正常下载的 MoviePilot。
+5. 如果插件配置了 `mp_download_save_path`，它会作为 PT 下载的显式保存路径；不要自行猜测或覆盖这个路径。
+
+创建后请用 external-agent 输出接入信息，并自测：用户说“盘搜搜索 大君夫人”时走 route；用户再说“选择 3”时沿用同一个 agent:会话ID 走 pick。
 ```
 
 ## Readiness

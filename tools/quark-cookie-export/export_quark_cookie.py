@@ -95,6 +95,15 @@ def load_cookiejar(browser: str, domain: str):
         ) from exc
 
 
+def candidate_cookie_domains(domain: str) -> list[str]:
+    parts = [part for part in domain.split(".") if part]
+    domains: list[str] = []
+    if len(parts) >= 2:
+        domains.append(".".join(parts[-2:]))
+    domains.append(domain)
+    return list(dict.fromkeys(domains))
+
+
 def domain_matches(cookie_domain: str, domain: str) -> bool:
     cookie_domain = cookie_domain.lstrip(".")
     return (
@@ -104,27 +113,36 @@ def domain_matches(cookie_domain: str, domain: str) -> bool:
     )
 
 
-def build_cookie_list(cookiejar, domain: str) -> list[dict[str, str]]:
+def build_cookie_list(cookiejars, domain: str) -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
     seen: set[str] = set()
-    for cookie in cookiejar:
-        if not domain_matches(cookie.domain, domain):
-            continue
-        if cookie.name in seen:
-            continue
-        seen.add(cookie.name)
-        items.append(
-            {
-                "domain": cookie.domain.lstrip("."),
-                "name": cookie.name,
-                "value": cookie.value,
-            }
-        )
+    for cookiejar in cookiejars:
+        for cookie in cookiejar:
+            if not domain_matches(cookie.domain, domain):
+                continue
+            if cookie.name in seen:
+                continue
+            seen.add(cookie.name)
+            items.append(
+                {
+                    "domain": cookie.domain.lstrip("."),
+                    "name": cookie.name,
+                    "value": cookie.value,
+                }
+            )
     return items
 
 
 def cookie_list_to_header(items: list[dict[str, str]]) -> str:
     return "; ".join(f"{item['name']}={item['value']}" for item in items if item.get("name"))
+
+
+def missing_auth_cookie_names(items: list[dict[str, str]]) -> list[str]:
+    names = {item.get("name") for item in items}
+    required_any = {"__puus", "__pus", "puus", "logintoken"}
+    if names & required_any:
+        return []
+    return sorted(required_any)
 
 
 def copy_to_clipboard(text: str) -> None:
@@ -168,8 +186,8 @@ def main() -> int:
     args = parse_args()
     try:
         domain = normalize_domain(args.site)
-        cookiejar = load_cookiejar(args.browser, domain)
-        items = build_cookie_list(cookiejar, domain)
+        cookiejars = [load_cookiejar(args.browser, item) for item in candidate_cookie_domains(domain)]
+        items = build_cookie_list(cookiejars, domain)
         cookie_header = cookie_list_to_header(items)
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
@@ -181,6 +199,17 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+
+    missing_auth = missing_auth_cookie_names(items)
+    if missing_auth:
+        print(
+            "Error: exported cookies do not include Quark auth cookies "
+            f"({', '.join(missing_auth)}). Open https://pan.quark.cn in the selected browser, "
+            "confirm it is logged in, then retry.",
+            file=sys.stderr,
+        )
+        print(f"Found cookie names: {', '.join(item['name'] for item in items)}", file=sys.stderr)
+        return 2
 
     if not args.no_copy:
         try:

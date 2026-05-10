@@ -1,435 +1,192 @@
 # 外部智能体接入 Agent影视助手
 
-这份文件用于把 `AgentResourceOfficer` 交给 WorkBuddy、Hermes、OpenClaw（小龙虾）、微信侧智能体或其他外部智能体调用。`Agent影视助手 / AgentResourceOfficer` 负责服务端能力执行；外部智能体只做客户端调度与展示。
+当前插件版本：`Agent影视助手 0.2.68`
 
-公开仓库地址：
+当前 helper 版本：`agent-resource-officer 0.1.46`
+
+让 `OpenClaw`、`Hermes`、`WorkBuddy` 或其他外部智能体，也能稳定调用 MoviePilot 的搜片、转存、下载、签到和修复能力。
+
+核心思路很简单：外部智能体负责理解你说的话、调用 `Agent影视助手`、展示结果；真正的资源搜索、转存、下载和账号操作，都交给 MoviePilot 里的插件执行。
+
+---
+
+## 一步接入
+
+把下面这段直接发给你的外部智能体：
 
 ```text
+请从这个仓库创建并使用 agent-resource-officer Skill：
 https://github.com/liuyuexi1987/MoviePilot-Plugins
-```
 
-## 当前接入状态
+创建后请依次读取：
+1. skills/agent-resource-officer/SKILL.md
+2. skills/agent-resource-officer/EXTERNAL_AGENTS.md
+3. docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md
 
-- 当前插件版本：`Agent影视助手 0.2.68`
-- 当前 helper 版本：`agent-resource-officer 0.1.42`
-- 当前最小循环：`startup -> decide --summary-only -> route --summary-only -> followup --summary-only`
-- 当前优先读取字段：`recommended_agent_behavior`、`auto_run_command`、`confirm_command`、`display_command`
-- 当前 AI 识别失败诊断入口：
-  - `route "失败样本 <片名>" --summary-only`
-  - `route "工作清单 <片名>" --summary-only`
-  - `route "样本洞察 <片名>" --summary-only`
-  - `route "重放样本 3" --summary-only`
-  - `route "重放 3" --summary-only`
-  - `route "确认" --summary-only`
-  - `templates --recipe ai_reingest --compact`
-
-给外部智能体学习时，建议让它先读仓库中的：
-
-- `skills/agent-resource-officer/SKILL.md`
-- `skills/agent-resource-officer/EXTERNAL_AGENTS.md`
-- `docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md`
-
-## 原则
-
-- 外部智能体只负责理解、调度和展示。
-- 115 云盘、夸克云盘等云盘资源搜索、候选选择、解锁、转存、115 登录状态全部交给 `AgentResourceOfficer`。
-- 不在提示词里写 Cookie、Token、API Key。
-- 同一个用户或群聊固定使用一个 `session`，例如 `agent:${chat_id}`。
-- 用户明确给出链接或编号后，才继续可能写入的动作。
-- 第一次接入用户时先读取 `preferences`。如果未初始化，询问片源偏好并保存，后续云盘与 PT 评分都复用这份画像。
-- 云盘资源按质量、字幕、完整度、目录和影巢积分评分；PT 资源按做种、免费/促销、下载折算、质量、字幕和匹配度评分。
-- 如果 helper 的 `summary-only` 返回 `recommended_agent_behavior=auto_continue` 或 `auto_continue_then_wait_confirmation`，可以直接执行 `auto_run_command`；其他结果先展示或等待确认。
-
-推荐把外部智能体自身的执行分支固定成 5 类：
-
-- `auto_continue`
-- `auto_continue_then_wait_confirmation`
-- `wait_user_confirmation`
-- `show_only`
-- `stop`
-
-不要再额外发明第三套状态名；直接复用 helper 返回值。
-
-推荐的最小接入循环：
-
-1. 调 `startup`
-2. 调 `decide --summary-only`
-3. 用户发自然语言后，调 `route --summary-only`
-4. 读取 `recommended_agent_behavior`
-5. 如果执行过计划，再调 `followup --summary-only`
-
-如果任务是“只给片名，让智能体自动比较多个来源”，优先走：
-
-- `python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py route "智能搜索 <片名>" --summary-only`
-- `python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py route "资源决策 <片名>" --summary-only`
-- 如果用户已经在一句话里明确要计划或直接执行，也可以直接发：
-  - `python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py route "资源决策 <片名> 详情" --summary-only`
-  - `python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py route "资源决策 <片名> 计划" --summary-only`
-  - `python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py route "资源决策 <片名> 确认" --summary-only`
-  - `python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py route "资源决策 <片名> 直接执行" --summary-only`
-- 如果已经进入同一资源决策会话，还可以直接发：
-  - `python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py route "先计划" --summary-only`
-  - `python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py route "确认执行" --summary-only`
-  - `python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py route "先看详情" --summary-only`
-  - 也支持更短的会话内命令：`计划`、`详情`、`确认`
-- 或先读模板：`python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py templates --recipe smart_search --compact`
-- 或先读模板：`python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py templates --recipe smart_decision --compact`
-- 如果你希望一步拿到待确认计划，用：`python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py route "智能计划 <片名>" --summary-only`
-- 或先读模板：`python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py templates --recipe smart_search_plan --compact`
-- 如果用户已经明确要求立即执行，用：`python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py route "智能执行 <片名>" --summary-only`
-- 或先读模板：`python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py templates --recipe smart_search_execute --compact`
-
-如果用户只是普通地说“搜索/找 某片”，先把原话透传给 `route`，不要自己先脑补成影巢候选或直接续跑旧会话里的 `选择 1`：
-
-- `搜索 <片名>`：默认先走盘搜
-- `云盘搜索 <片名>`：只走盘搜 + 影巢，不进入 MP/PT
-- `影巢搜索 <片名>`：明确走影巢直接列表
-- `MP搜索 <片名>` / `PT搜索 <片名>`：明确走 MoviePilot 原生 PT 搜索
-- `更新 <片名>` / `更新检查 <片名>` / `检查 <片名>`：先走更新检查，直接返回官方参考进度、盘搜最新集资源、影巢最新集资源；不要先清空会话，不要先改走影巢候选
-- `清空夸克默认转存目录` / `清空夸克默认目录`：这是显式破坏性写操作，只在用户原话明确提出时直传，不要改写成 115 清理，也不要先做搜索或更新检查。它会清掉夸克默认目录当前层的文件和文件夹；删除文件夹时会连同文件夹内内容一起清掉。
-- `清空115转存目录` / `清空115默认转存目录` / `清空115默认目录`：这是显式破坏性写操作，只在用户原话明确提出时直传，不要改写成夸克清理，也不要先做搜索或更新检查
-
-只有当用户明确说 `下载 <片名>`，而且没有指定来源时，才默认进入智能链，目的是少做选择、提高效率。
-
-普通 `搜索/找 <片名>` 返回盘搜列表后，默认先按编号直接选；想先确认时再发 `选择 1 详情`。只有用户明确要求保留计划确认链时，才发 `计划选择 1`。
-
-如果用户明确在追用刚才那轮结果，例如：
-
-- `把刚才那个 22 转存`
-- `原来的 #22`
-- `下载 10`
-- `选择 14`
-
-优先沿用当前 session 继续 `pick`，不要先重新搜索一遍再给用户换编号。只有在旧会话确实不存在、恢复链也找不到匹配会话时，才重新搜索，并明确告诉用户编号已经重建。
-
-普通 `搜索/找 <片名>` 的结果，优先原样转述资源官返回的编号列表。不要把它再改写成“资源状态”“推荐条目”“费用/评分/推荐星级”这种二次摘要；如果要加一句说明，只保留极短观察，不要覆盖原列表。
-
-如果 `影巢搜索` 自动补查盘搜，或者 `云盘搜索` 里的影巢段未展开，仍然优先原样转述插件返回，不要自己改写成“有新集了”“两边都有了”“最高分版本如下”这类总结，更不要把原始链接和编号压掉。
-
-这条入口会统一按 `盘搜 -> 影巢 -> MP/PT` 搜索，并自动读取当前会话偏好里的：
-
-- 可用源：`enable_pansou / enable_hdhive / enable_mp_pt`
-- 可用云盘：`has_115 / has_quark`
-
-所以如果用户已经说明“只有夸克”“没有 115”“不用盘搜”“只用 MP/PT”，外部智能体不需要自己再维护一套轮询逻辑，只要先保存偏好，再调用 `智能搜索` 即可。
-
-如果已经跑过一次 `智能搜索`，外部智能体还可以直接在同一 session 里发：
-
-- `计划最佳`
-- `执行最佳`
-- `换影巢`
-- `换盘搜`
-- `换PT`
-- `保守一点`
-- `激进一点`
-- `只用夸克`
-- `只用115`
-- `只走PT`
-- `不用影巢`
-- `按保存偏好`
-
-这会按当前首选自动生成待确认 `plan_id`，仍然需要后续 `执行计划` 才会真正写入。
-而 `执行最佳` / `智能执行` 会直接走写入链，只适用于用户已经明确要求立即执行的场景。
-
-如果当前问题是“整理为什么失败、有没有 AI 失败样本可以继续分析”，优先走只读诊断链：
-
-- `route "本地诊断 <片名>" --summary-only`
-- `route "失败样本 <片名>" --summary-only`
-- `route "工作清单 <片名>" --summary-only`
-- `route "样本洞察 <片名>" --summary-only`
-- 或先读模板：`templates --recipe ai_reingest --compact`
-
-如果用户已经明确要对某条样本做二次识别重放，再用：
-
-- `route "重放样本 3" --summary-only`
-- 或在当前 AI 样本会话里直接发：`route "重放 3" --summary-only`
-- 计划生成后再发：`route "确认" --summary-only`
-- 重放后可直接发：`route "诊断" --summary-only`、`route "入库状态" --summary-only`
-
-这一步仍然遵守确认链：先生成待确认计划，再通过 `确认` 或 `执行计划 <plan_id>` 实际执行。
-
-三类入口都复用同一套 assistant 协议：
-
-- 外部智能体：优先用 Skill/helper，按 `startup -> decide -> route -> followup` 运行。
-- MP 内置智能体：优先用 Agent Tool / `request_templates`，不要让模型自己拼底层资源 API。
-- 飞书入口：把消息送进插件内置 Channel，底层仍然走 `route / pick / followup`。
-
-如果想用最低 token 方式接入，直接读取 `assistant/request_templates` 返回里的：
-
-- `orchestration_contract`
-- `entry_patterns`
-- `entry_playbooks`
-- `recommended_recipe_detail`
-
-## 连接变量
-
-```text
-BASE_URL=https://你的 MoviePilot 可访问地址
-MP_API_TOKEN=你的 MoviePilot API_TOKEN
-```
-
-`BASE_URL` 示例：
-
-```text
-同机调用：BASE_URL=http://127.0.0.1:3000
-局域网调用：BASE_URL=http://你的局域网IP:3000
-公网反代：BASE_URL=https://你的 MoviePilot 域名
-```
-
-不要把 `MP_API_TOKEN` 写进提示词正文。它应该放在外部智能体的安全变量、工具密钥或私有配置中。
-
-如果 `MoviePilot` 不在当前机器，而是在 NAS、Windows 或另一台 Docker 主机，请同时阅读：
-
-- `docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md`
-
-跨机器时，外部智能体的用法不变，主要变化只是 `BASE_URL` 和旁路服务地址的可达性配置。
-
-如果你只想最低成本接入，不要先读完整说明，先执行：
-
-```bash
-python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py readiness
-python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py external-agent
-```
-
-然后按 `external-agent` 输出里的 `execution_policy_contract`、`execution_loop_contract`、`entry_playbooks` 和 `deprecated_aliases` 接入。
-
-## 从仓库安装 Skill
-
-```bash
-git clone https://github.com/liuyuexi1987/MoviePilot-Plugins.git
-cd MoviePilot-Plugins
-bash skills/agent-resource-officer/install.sh --dry-run
-bash skills/agent-resource-officer/install.sh
-```
-
-创建连接配置：
-
-```bash
-mkdir -p ~/.config/agent-resource-officer
-cat > ~/.config/agent-resource-officer/config <<'EOF'
-ARO_BASE_URL=https://你的 MoviePilot 可访问地址
+连接配置：
+ARO_BASE_URL=http://MoviePilot地址:3000
 ARO_API_KEY=你的 MoviePilot API_TOKEN
-EOF
+
+如果你的客户端支持 MoviePilot 官方 MCP，也请同时接入：
+MCP 地址：http://MoviePilot地址:3000/api/v1/mcp
+认证头：X-API-KEY=你的 MoviePilot API_TOKEN
+
+分工规则：
+1. 插件列表、下载器状态、站点状态、历史记录、工作流、调度器等 MoviePilot 管理查询，可以优先用 MCP。
+2. 云盘搜索、盘搜、影巢、转存、夸克转存、115转存、下载、更新检查、编号选择、翻页、详情、Cookie 修复，继续优先用 agent-resource-officer skill / helper。
+3. 只有当前会话真的加载出 mcp__moviepilot__* 工具，才算 MCP 已接通；没接通时不要假装在用 MCP。
+
+请把配置写入 ~/.config/agent-resource-officer/config。
+然后运行 readiness 验证连接，成功后按文档规则接入。
 ```
 
-验证并生成外部智能体提示词：
+`ARO_API_KEY` 在 MoviePilot 管理后台的系统设置 / 安全设置里找。
+
+---
+
+## 连接地址怎么填
+
+先判断 MoviePilot 和智能体是不是在同一台机器。
+
+### 同机部署
+
+如果 MoviePilot 和智能体在同一台电脑或同一个容器网络里，可以这样填：
 
 ```bash
-python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py readiness
-python3 <SKILL_HOME>/agent-resource-officer/scripts/aro_request.py external-agent
+ARO_BASE_URL=http://127.0.0.1:3000
+ARO_API_KEY=你的 MoviePilot API_TOKEN
 ```
 
-这里的 `<SKILL_HOME>` 指你的智能体 Skill 根目录，例如某些客户端会使用自己的 `skills/` 目录；不要把个人机器路径写进公开 Skill。
+这也是最简单的情况。
 
-## 让外部智能体创建自己的 Skill
+### 跨机器部署
 
-如果当前智能体支持 Skill、项目能力或本地工具目录，推荐先创建或安装 `agent-resource-officer` Skill，再开始处理资源任务。这样可以把规则固化下来，避免只靠聊天上下文。
+如果 MoviePilot 在 NAS，智能体在 Win / Mac 电脑上，`ARO_BASE_URL` 必须填 NAS 的实际地址：
 
-创建后的最低验收标准：
-
-- Skill 名称建议为 `agent-resource-officer`。
-- Skill 文档中必须写明：不直接调用影巢、盘搜、115、夸克底层 API。
-- Skill 文档中必须写明：不保存、不输出 API Key、Cookie、Token。
-- Skill 至少提供 `startup`、`route`、`pick`、`preferences` 四个入口。
-- session 示例使用 `agent:会话ID`，不要把平台名写死。
-- 推荐 helper 命令使用 `external-agent`；`workbuddy` 只作为兼容别名，并已标记为 deprecated。
-- 创建后自测 `盘搜搜索 大君夫人` 应走 `route`，`选择 3` 应沿用同一 session 走 `pick`。
-
-## 最小工具
-
-### route
-
-```json
-{
-  "name": "agent_resource_route",
-  "method": "POST",
-  "url": "{BASE_URL}/api/v1/plugin/AgentResourceOfficer/assistant/route?apikey={MP_API_TOKEN}",
-  "body": {
-    "text": "{{text}}",
-    "session": "{{session}}",
-    "compact": true
-  }
-}
+```bash
+ARO_BASE_URL=http://192.168.1.100:3000
+ARO_API_KEY=你的 MoviePilot API_TOKEN
 ```
 
-### pick
+不要填：
 
-```json
-{
-  "name": "agent_resource_pick",
-  "method": "POST",
-  "url": "{BASE_URL}/api/v1/plugin/AgentResourceOfficer/assistant/pick?apikey={MP_API_TOKEN}",
-  "body": {
-    "choice": "{{choice}}",
-    "action": "{{action}}",
-    "session": "{{session}}",
-    "compact": true
-  }
-}
+```bash
+ARO_BASE_URL=http://127.0.0.1:3000
 ```
 
-### startup
+这里的 `127.0.0.1` 只代表智能体自己这台机器，不是 NAS。
 
-```json
-{
-  "name": "agent_resource_startup",
-  "method": "GET",
-  "url": "{BASE_URL}/api/v1/plugin/AgentResourceOfficer/assistant/startup?apikey={MP_API_TOKEN}"
-}
-```
+如果你有多套 MoviePilot，要特别注意：
 
-## 系统提示词
+- `ARO_BASE_URL` 指向哪套 MoviePilot，`下载 / MP搜索 / PT搜索 / 转存` 就使用哪套 MoviePilot。
+- 如果当前 MoviePilot 只用于网盘或 STRM，不要在这套实例里确认 PT 下载。
+- 如果 MoviePilot 和 qBittorrent 不在一台机器，可在 Agent影视助手设置里填写 `PT 下载保存路径`，路径要按目标 NAS / qB 的真实下载目录填写。
+
+跨机器部署详细说明见 [AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md](../../docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)。
+
+---
+
+## 手动添加 MCP
+
+有些智能体不会自动读取或启用 MoviePilot MCP，需要你在智能体的 MCP 设置里手动添加。
+
+填写：
 
 ```text
-你是 MoviePilot Agent影视助手的外部智能体入口。
-
-核心原则：
-1. 不直接调用影巢、115、夸克、盘搜底层 API。
-2. 所有资源搜索、选择、转存、115 登录状态，都只调用 AgentResourceOfficer。
-3. 不输出 API Key、Cookie、Token。
-4. 遇到编号选择、详情、下一页，要沿用同一个 session。
-5. 写入类动作，例如转存、解锁、执行计划，除非用户已经明确选择编号或给出链接，否则不要擅自执行。
-
-每次新会话先调用 startup。需要低 token 调用说明时，默认调用 request_templates，recipe=external_agent。
-如果当前会话还没有完成偏好初始化，优先调用 request_templates，recipe=preferences。
-如果当前任务已经明确是 MP 原生 PT 搜索、下载、订阅、任务追踪，优先调用 request_templates，recipe=mp_pt。
-如果当前任务已经明确是热门推荐、豆瓣热映、Bangumi 番剧续接，优先调用 request_templates，recipe=recommend。推荐列表里可直接发：
-
-- `选择 1 决策`
-- `选择 1 计划`
-- `选择 1 确认`
-- `详情 1`
-- 也支持单句直达当前榜单首项：
-  - `智能发现 热门电影 详情`
-  - `智能发现 热门电影 计划`
-  - `智能发现 热门电影 确认`
-- 也支持单句直达具体来源：
-  - `智能发现 热门电影 盘搜`
-  - `智能发现 热门电影 影巢`
-  - `智能发现 热门电影 原生`
-- 如果已经切到 `盘搜 / 影巢 / 原生`，也支持：
-  - `回推荐`
-  - `盘搜 / 影巢 / 原生`
-  - 在 `盘搜 / 原生` handoff 会话里，也支持：
-    - `详情 / 计划 / 确认 / 决策`
-- 也支持直接对当前榜单首项继续发：
-  - `详情`
-  - `计划`
-  - `确认`
-- 进入推荐会话后，也支持：
-  - `决策 1`
-  - `计划 1`
-  - `确认 1`
-  - 如果先看了 `详情 1`，还可以直接发：
-  - `详情`
-  - `决策`
-  - `计划`
-  - `确认`
-  - `盘搜`
-  - `影巢`
-  - `原生`
-  - `电影`
-  - `电视剧`
-  - `豆瓣`
-  - `热映`
-  - `番剧`
-
-统一入口：
-POST /api/v1/plugin/AgentResourceOfficer/assistant/route?apikey={MP_API_TOKEN}
-
-请求体：
-{
-  "text": "用户原始指令",
-  "session": "agent:用户或会话ID",
-  "compact": true
-}
-
-编号选择入口：
-POST /api/v1/plugin/AgentResourceOfficer/assistant/pick?apikey={MP_API_TOKEN}
-
-请求体：
-{
-  "choice": 1,
-  "session": "agent:用户或会话ID",
-  "compact": true
-}
-
-详情、审查、下一页入口：
-POST /api/v1/plugin/AgentResourceOfficer/assistant/pick?apikey={MP_API_TOKEN}
-
-请求体：
-{
-  "action": "详情",
-  "session": "agent:用户或会话ID",
-  "compact": true
-}
-
-常用用户指令：
-- MP搜索 蜘蛛侠
-- 搜索 蜘蛛侠
-- 盘搜搜索 大君夫人
-- ps大君夫人
-- 1大君夫人
-- 影巢搜索 蜘蛛侠
-- yc蜘蛛侠
-- 2蜘蛛侠
-- 选择 1
-- 详情
-- 审查
-- 下一页
-- 115状态
-- 115登录
-- 检查115登录
-- 链接 https://pan.quark.cn/s/xxxx path=/飞书
-- 链接 https://115cdn.com/s/xxxx path=/待整理
-
-默认目录：
-- 115 默认转存到 /待整理
-- 夸克默认转存到 /飞书
-- 用户显式写 path=/目录 或 位置=目录 时，以用户指定目录为准
-
-展示规则：
-1. 只展示 AgentResourceOfficer 返回的 message，不自己编造资源。
-2. 如果返回候选影片，先让用户选影片编号。
-3. 如果返回资源列表，保留每条资源的网盘、解锁分、大小、清晰度、来源、集数/更新信息、字幕和详情摘要，提示用户回复“选择 编号”。
-4. 如果返回转存结果，只总结成功/失败和目录。
-5. 如果返回需要扫码登录，展示二维码或提示用户完成扫码，再调用“检查115登录”。
-
-错误处理：
-1. 如果接口失败，先调用 selfcheck 或 startup。
-2. 如果 session 丢失，让用户重新发搜索词或链接。
-3. 如果 115 不可用，引导用户发“115登录”。
-4. 如果夸克失败，提示可能 Cookie 失效，让用户更新夸克登录状态。
-5. 如果 `影巢签到` 或 `影巢签到日志` 明确提示网页登录态失效、Cookie 失效、require login 或自动登录拿不到有效 Cookie，优先执行：
-   - `python3 scripts/aro_request.py hdhive-checkin-repair`
-   在这之前只需要提醒用户先确认已经在 Edge 登录 `https://hdhive.com`。不要让用户手工复制 Cookie 到聊天里。
-6. 如果夸克失败里明确提示 `require login [guest]`、`夸克登录态已过期` 或 `当前夸克登录态不足`，优先执行：
-   - `python3 scripts/aro_request.py quark-transfer-repair`
-   如果还保留着刚才失败的原始转存命令，例如 `选择 7`，优先改成：
-   - `python3 scripts/aro_request.py quark-transfer-repair --retry-text "选择 7" --session <当前会话>`
-   在这之前只需要提醒用户先确认已经在 Edge 登录 `https://pan.quark.cn`。不要把分享者封禁、41031、分享受限这类错误误判成 Cookie 失效。
-7. 不要让用户提供 Cookie、Token、API Key 到聊天里。
-
-最省 token 流程：
-1. 每个新会话先 startup 一次。
-2. 用户发搜索/链接时只调用 route。
-3. 用户发选择/详情/下一页时只调用 pick。
-4. 不解析长文本，不重复请求底层服务。
+MCP 地址：http://你的MP地址:3000/api/v1/mcp
+认证头：X-API-KEY=你的 MoviePilot API_TOKEN
 ```
 
-## 请求模板
+如果 MoviePilot 在 NAS，地址要写 NAS 的实际地址：
 
-`AgentResourceOfficer 0.1.116+` 支持：
-
-```bash
-python3 scripts/aro_request.py external-agent
-python3 scripts/aro_request.py external-agent --full
-python3 scripts/aro_request.py templates --recipe external_agent --compact
+```text
+MCP 地址：http://你的NAS地址:3000/api/v1/mcp
 ```
 
-它会返回：
+添加后，需要在智能体里确认 MCP 已启用，并且当前会话能看到类似 `mcp__moviepilot__*` 的工具。
 
-- `external_agent.v1` 紧凑提示词和工具约定
-- `startup_probe`
-- `route_text`
-- `pick_continue`
+如果看不到这些工具，就说明 MCP 没有真正加载成功。此时不要让智能体假装在用 MCP，资源流继续走 `agent-resource-officer skill / helper`。
+
+---
+
+## 怎么用
+
+接入完成后，直接对智能体说：
+
+| 命令 | 作用 |
+|---|---|
+| `搜索 蜘蛛侠` | 搜索云盘资源，默认走盘搜 |
+| `云盘搜索 蜘蛛侠` | 盘搜 + 影巢一起搜 |
+| `MP搜索 蜘蛛侠` / `PT搜索 蜘蛛侠` | 走 MoviePilot 原生 PT 搜索 |
+| `转存 蜘蛛侠` | 默认等同 `115转存 蜘蛛侠` |
+| `115转存 蜘蛛侠` | 搜索后转存到 115 |
+| `夸克转存 蜘蛛侠` | 搜索后转存到夸克 |
+| `下载 蜘蛛侠` | 搜索并生成 PT 下载计划 |
+| `更新检查 蜘蛛侠` | 检查是否有新资源 |
+| `115登录` | 扫码登录 115 |
+| `影巢签到` | 执行影巢签到 |
+
+完整命令列表见 [ALL_COMMANDS.md](../../docs/ALL_COMMANDS.md)。
+
+---
+
+## MCP 要不要接
+
+MoviePilot 官方 MCP 可以接，但它和 `agent-resource-officer skill / helper` 的定位不同。
+
+推荐这样分工：
+
+| 场景 | 推荐入口 |
+|---|---|
+| 插件列表、下载器状态、站点状态、历史记录、工作流、调度器等 MoviePilot 管理查询 | 官方 MCP |
+| 盘搜、影巢、云盘搜索、115/夸克转存、编号选择、翻页、详情、Cookie 修复 | `agent-resource-officer skill / helper` |
+| `MP搜索 / PT搜索 / 下载 / 更新检查` 这类片名资源流 | 优先 `agent-resource-officer skill / helper` |
+
+MCP 地址通常是：
+
+```text
+http://你的MP地址:3000/api/v1/mcp
+```
+
+认证头：
+
+```text
+X-API-KEY=你的 MoviePilot API_TOKEN
+```
+
+注意：只有当前智能体客户端真的加载出了 `mcp__moviepilot__*` 工具，才算 MCP 已接通。没有接通时，不要让智能体假装在用 MCP；资源流继续走 `agent-resource-officer`。
+
+---
+
+## 给智能体看的执行规则
+
+这部分规则已经写在 `agent-resource-officer` Skill 里，普通用户不用背。
+
+接入时只要让外部智能体读取本仓库里的 Skill，它就会知道哪些命令必须走 `route / pick`、哪些动作需要确认、哪些结果不能重排编号。
+
+---
+
+## 长线程维护
+
+微信、飞书、WorkBuddy、Claw 这类长线程用久后，可能会出现：
+
+- `15详情` 被误解成 `选择 15`
+- 编号续接到旧搜索结果
+- 一直套用旧格式或旧规则
+
+这时直接对智能体说：
+
+```text
+校准影视技能
+```
+
+这条命令会让智能体重新加载影视助手的关键规则。不要在普通 `搜索 / 更新检查 / 检查` 前主动清会话，否则会破坏正常编号续接。
+
+---
+
+## 相关文档
+
+- [全部命令一览](../../docs/ALL_COMMANDS.md)
+- [跨机器部署](../../docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)
+- [Skill 说明](./SKILL.md)
+- [外部智能体详细规范](./EXTERNAL_AGENTS.md)

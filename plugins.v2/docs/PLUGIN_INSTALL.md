@@ -1,153 +1,172 @@
 # 插件安装说明
 
-这份文档只讲一件事：
+这份文档只讲普通用户怎么安装、先装什么、装完从哪里开始。
 
-- 普通用户该装什么
-- 普通用户怎么开始用
-- 资源主线：`Agent影视助手 / AgentResourceOfficer 0.2.68`
-- 当前 Skill helper：`agent-resource-officer 0.1.42`
-- 当前发布页：<https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.2.68>
+如果你只是新手，不需要看打包、发布、维护命令。
 
-如果你只是想把插件装起来，不需要看打包、发布、维护命令。
+---
 
-## 新用户先装什么
+## 先装哪两个
 
 优先安装：
 
-- `AgentResourceOfficer`
-- `AIRecognizerEnhancer`
+```text
+Agent影视助手
+AI识别增强
+```
 
-这两个就够你先跑通主线：
+这两个就是当前主线：
 
-- 搜资源
-- 选资源
-- 转存 / 下载
-- 更新检查
-- 识别失败兜底
+- `Agent影视助手`：飞书命令入口、外部智能体入口、盘搜、影巢、115、夸克、MP/PT 下载。
+- `AI识别增强`：MoviePilot 原生识别失败时，用 LLM 做一层兜底。
 
-## 安装方式
+旧插件可以先不装。
 
-### 方式 1：插件仓库安装
+---
 
-在 MoviePilot 中添加这个自定义插件仓库：
+## 插件仓库安装
+
+在 MoviePilot 插件市场里添加自定义插件仓库：
 
 ```text
 https://github.com/liuyuexi1987/MoviePilot-Plugins
 ```
 
-然后在插件市场里安装：
-
-- `AgentResourceOfficer`
-- `AIRecognizerEnhancer`
-
-这是最推荐的方式。
-
-### 方式 2：本地 ZIP 安装
-
-如果你拿到的是 Release 里的 ZIP 包，也可以在 MoviePilot 插件页直接本地上传安装。
-
-普通用户只需要认这几个包。当前常见文件名就是：
-
-- `AgentResourceOfficer-0.2.68.zip`
-- `AIRecognizerEnhancer-0.1.12.zip`
-- 如果你确实还要旧兼容入口，再按需装：
-  - `FeishuCommandBridgeLong-0.5.26.zip`
-  - `HdhiveOpenApi-0.3.0.zip`
-  - `QuarkShareSaver-0.1.0.zip`
-
-## 接外部智能体时怎么装
-
-如果你要接：
-
-- WorkBuddy
-- OpenClaw
-- Hermes
-- 其他外部智能体
-
-除了 MoviePilot 里的插件本体，还需要安装：
-
-- `agent-resource-officer` skill / helper
-
-如果你后面还要用：
-
-- `刷新影巢Cookie`
-- `修复影巢签到`
-- `刷新夸克Cookie`
-- `修复夸克转存`
-
-仓库里已经附带可分发的本机导出工具：
-
-- [tools/hdhive-cookie-export](../tools/hdhive-cookie-export/README.md)
-- [tools/quark-cookie-export](../tools/quark-cookie-export/README.md)
-
-先看这两个文件：
-
-- [skills/agent-resource-officer/SKILL.md](../skills/agent-resource-officer/SKILL.md)
-- [AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md](./AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
-
-可以直接丢给智能体这段最短提示词：
+然后在插件市场安装：
 
 ```text
-请从这个仓库安装并使用 agent-resource-officer skill：
-https://github.com/liuyuexi1987/MoviePilot-Plugins
+Agent影视助手
+AI识别增强
+```
 
-请按下面配置完成接入：
-ARO_BASE_URL=http://127.0.0.1:3000
+这是最推荐的安装方式。
+
+---
+
+## 本地 ZIP 安装
+
+如果你拿到的是 Release 里的 ZIP 包，也可以在 MoviePilot 插件页本地上传安装。
+
+普通用户只需要优先认这两个包：
+
+```text
+AgentResourceOfficer-版本号.zip
+AIRecognizerEnhancer-版本号.zip
+```
+
+其他旧插件包只用于兼容旧链路，新装一般不用优先安装。
+
+---
+
+## 装完 Agent影视助手后做什么
+
+打开 `Agent影视助手` 设置页面，按你要用的功能填写：
+
+| 你想用的功能 | 需要配置 |
+|---|---|
+| 飞书命令入口 | 飞书应用的 `App ID` / `App Secret` |
+| 盘搜搜索 | `盘搜 API 地址` |
+| 影巢搜索 | `影巢 OpenAPI Key` |
+| 115 转存 | `115 默认目录`，然后发 `115登录` 扫码 |
+| 夸克转存 | 夸克 Cookie 或 CookieCloud |
+| PT 下载 | 通常依赖 MoviePilot 原生下载器；MP 和 qB 不同机时可填 `PT 下载保存路径` |
+
+不用的功能可以先不填，插件会自动跳过。
+
+---
+
+## 不接智能体，只用飞书
+
+如果你不使用外部智能体，只想把飞书当成命令入口：
+
+1. 在插件设置页配好飞书。
+2. 确认只保留一个飞书入口监听，避免旧飞书插件和新插件同时收消息。
+3. 直接在飞书里发命令。
+
+常用命令：
+
+```text
+云盘搜索 片名
+盘搜搜索 片名
+影巢搜索 片名
+转存 片名
+夸克转存 片名
+下载 片名
+更新检查 片名
+115登录
+影巢签到
+```
+
+完整命令见：`docs/ALL_COMMANDS.md`
+
+---
+
+## 接外部智能体
+
+如果你要让 `OpenClaw`、`Hermes`、`WorkBuddy` 这类外部智能体控制 MoviePilot，安装插件后还要让智能体安装 `agent-resource-officer skill / helper`。
+
+最短路径：
+
+1. MoviePilot 安装并启用 `Agent影视助手`。
+2. 把 [外部智能体接入](./AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md) 里的提示词发给你的智能体。
+3. 智能体按文档安装 skill，并填写：
+
+```text
+ARO_BASE_URL=http://你的MoviePilot地址:3000
 ARO_API_KEY=你的 MoviePilot API_TOKEN
-
-安装后请优先读取：
-1. skills/agent-resource-officer/SKILL.md
-2. docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md
-
-然后按其中的固定命令和接入规则执行。
-
-额外要求：
-- `云盘搜索` 必须原样 route，不要偷换成 `盘搜搜索`
-- 不要自己重排编号
-- 不要把结果改写成“推荐资源/分析结论”
-- 盘搜结果里的链接必须原样保留，不要吞掉 115 或夸克 URL
 ```
 
-## 推荐安装组合
+如果 MoviePilot 在 NAS、智能体在 Win / Mac，请看：
 
-### 组合 A：当前推荐主线
+[跨机器部署](./AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)
 
-- `AgentResourceOfficer`
-- `AIRecognizerEnhancer`
+### MCP 怎么办
 
-适合：
+如果你的智能体客户端支持 MoviePilot 官方 MCP，也可以同时接：
 
-- 新用户
-- 想少装插件
-- 想把搜索、转存、下载、签到、修复尽量统一到一个主入口
+```text
+MCP 地址：http://你的MP地址:3000/api/v1/mcp
+认证头：X-API-KEY=你的 MoviePilot API_TOKEN
+```
 
-### 组合 B：旧兼容组合
+建议分工：
 
-如果你还在沿用旧工作流，可以按需补这些插件：
+- 查插件列表、下载器状态、站点状态、历史记录、工作流这类 MoviePilot 管理信息，可以优先用 MCP。
+- 盘搜、影巢、云盘搜索、115/夸克转存、编号选择、翻页、Cookie 修复，继续优先用 `agent-resource-officer skill / helper`。
+- `MP搜索 / PT搜索 / 下载 / 更新检查` 这类片名资源流，也继续优先交给 `agent-resource-officer`，避免智能体绕过插件规则。
 
-- `FeishuCommandBridgeLong`
-- `HdhiveOpenApi`
-- `QuarkShareSaver`
+---
 
-它们组合起来时的大致分工是：
+## AI识别增强怎么用
 
-- `FeishuCommandBridgeLong`
-  - 负责飞书消息入口
-- `HdhiveOpenApi`
-  - 负责影巢搜索、解锁、签到、配额
-- `QuarkShareSaver`
-  - 负责夸克分享直转
+`AI识别增强` 不需要额外 Gateway。
 
-也就是说，旧组合更像“多插件拼一条链”；现在更推荐把搜索、转存、签到和修复尽量收进：
+它直接复用 MoviePilot 当前已经启用的 LLM 配置，在原生文件名识别失败时做兜底，然后把结果交回 MoviePilot 原生整理链。
 
-- `AgentResourceOfficer`
+详细说明见：[AI识别增强](../AIRecognizerEnhancer/README.md)
 
-## AI 识别补充说明
+---
 
-`AIRecognizerEnhancer` 不需要额外 Gateway，直接复用 MoviePilot 当前已经启用的 LLM 配置。
+## 旧插件还要不要装
 
-## 如果你只是普通用户，到这里就够了
+新装一般不需要优先安装旧插件。
 
-如果你后面真的要自己打包、发布或维护仓库，再去看：
+| 旧插件 | 用途 | 建议 |
+|---|---|---|
+| `FeishuCommandBridgeLong` | 旧飞书入口 | 新环境优先用 Agent影视助手内置飞书入口 |
+| `HdhiveOpenApi` | 旧影巢独立能力 | 主能力已收进 Agent影视助手 |
+| `QuarkShareSaver` | 旧夸克独立转存 | 主能力已收进 Agent影视助手 |
 
-- [docs/MAINTENANCE_COMMANDS.md](./MAINTENANCE_COMMANDS.md)
+如果你是老环境迁移，可以暂时保留；如果是新装，先用 `Agent影视助手`。
+
+---
+
+## 维护者文档
+
+如果你只是普通用户，到这里就够了。
+
+如果你要打包、发布或维护仓库，再看：
+
+- [维护命令](./MAINTENANCE_COMMANDS.md)
+- 发布检查：`docs/RELEASE_CHECKLIST.md`
+- 打包说明：`docs/PACKAGING.md`

@@ -1,8 +1,8 @@
 # agent-resource-officer
 
-公开版 AgentResourceOfficer Skill 模板，用来让外部智能体通过 MoviePilot 插件接口控制 115 云盘、夸克云盘等云盘资源工作流。插件是服务端执行层；Skill/helper 是客户端调度层。
+公开版 AgentResourceOfficer Skill 模板，用来让外部智能体通过 MoviePilot 插件接口控制盘搜、影巢、115、夸克、MP/PT 搜索、下载、更新检查、编号选择和 Cookie 修复等资源工作流。插件是服务端执行层；Skill/helper 是客户端调度层。
 
-当前 helper 版本：`0.1.42`
+当前 helper 版本：`0.1.46`
 
 ## 当前状态
 
@@ -28,12 +28,13 @@
   - `搜索 <片名>` / `找 <片名>` 默认先走盘搜
   - `云盘搜索 <片名>` 固定走盘搜 + 影巢
   - `影巢搜索 <片名>` 明确走影巢直接列表
-  - `MP搜索 <片名>` / `PT搜索 <片名>` 明确走 MoviePilot 原生 PT 搜索
-- `转存 <片名>` 走云盘资源一条龙转存，优先盘搜 + 影巢
+  - `MP搜索 <片名>` / `PT搜索 <片名>` 明确走 MoviePilot 原生 PT 搜索；片名有歧义时先返回 MP/TMDB 候选，用户选编号后再搜索 PT
+- `转存 <片名>` 默认等同 `115转存 <片名>`，会先做影片确认，再只从 115 资源里择优转存
+- `夸克转存 <片名>` 才会走夸克资源转存
 - `下载 <片名>` 走 MP/PT 直接下载
 - 当前更新口径：
   - `更新 <片名>` / `更新检查 <片名>` / `检查 <片名>` 先走更新检查
-  - 直接展示官方参考进度、盘搜最新集资源、影巢最新集资源
+  - 直接展示TMDB 参考进度、盘搜最新集资源、影巢最新集资源
   - 不要先清空会话，不要先改走影巢候选
   - 资源列表必须保留原始编号，方便后续直接回编号
 - 当前破坏性目录命令：
@@ -426,7 +427,7 @@ AI 失败样本链现在分两步：
 WorkBuddy、Hermes、OpenClaw（小龙虾）、微信侧智能体或其他外部智能体接入时，可以直接复用：
 
 - [外部智能体接入 Agent影视助手](../../docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
-- [Skill 包内外部智能体接入文件](./EXTERNAL_AGENTS.md)
+- Skill 包内外部智能体接入文件：`skills/agent-resource-officer/EXTERNAL_AGENTS.md`
 - `PROMPTS.md` 里的外部智能体提示词段落
 
 `decide` 是单次决策入口：
@@ -501,6 +502,19 @@ python3 scripts/aro_request.py plans-clear plan-xxx
 - `session-clear` / `sessions-clear` 是写入型清理命令，用于清理放弃的会话或 pending 115 恢复状态。
 - `plans-clear` 是写入型清理命令，优先使用 `--plan-id` 精确清理；批量清理时再使用 `--session`、`--executed`、`--unexecuted` 或 `--all-plans`。
 
+长线程维护：
+
+如果外部智能体接的是微信、WorkBuddy、Claw、Hermes 或 OpenClaw 这类长期不断开的线程，用久以后可能会被旧测试上下文污染。典型表现是：`15详情` 被改写成 `选择 15`、编号续接到旧结果、或展示格式突然回到旧规则。
+
+这时先清当前 session 和旧计划，再让智能体重新读取 Skill：
+
+```bash
+python3 scripts/aro_request.py session-clear --session default
+python3 scripts/aro_request.py plans-clear --session default
+```
+
+如果你给每个用户或群聊分配了固定 session，例如 `agent:wechat-room-1`，把 `default` 换成实际 session。不要把这一步放到普通搜索或更新检查前自动执行，否则会破坏正常编号续接。
+
 ## 偏好与评分
 
 ```bash
@@ -562,6 +576,10 @@ python3 scripts/aro_request.py route --text "执行 plan-xxxx" --session agent:d
 - 插件原生下一步提示
 
 `云盘搜索` 返回后，不要自行改写成每个来源各自从 `1` 开始编号的小表格，也不要只摘“亮点”。如果插件返回了全局编号，就保留全局编号；如果插件提示“影巢候选未自动展开”，也应原样保留这句，而不是把它改成一句“影巢还有候选，需要可发影巢搜索”然后丢掉上文结构。
+
+`MP搜索` / `PT搜索` 返回后，也不要自行改写成简表。尤其不要重写英文 release title，插件会在点号标题里加入隐藏断点，并用 `🧲`、`🌱`、`🎁`、`💾`、`⭐` 等 emoji 改善手机微信阅读；这些标记都应原样保留。
+
+`更新检查` / `检查` 返回后，同样不要改写成 `#: 来源 / 详情 / 日期` 这种字段表。插件已经会输出 `🟨 盘搜结果`、`🟦 影巢结果`、`🗄 #编号 夸克`、`📺 #编号 115`、`🕒日期`、`📌 集数`，这些行应原样保留，最多在列表后追加一段很短的自然语言建议。
 
 夸克转存失败时，不要自己补一段“可能是默认转存目录不存在或有问题”“换个 path=/ 试试”这类猜测。只有当插件明确指出路径问题时，才建议改路径；如果插件只返回 `夸克转存失败：无法转存到 /飞书`，更稳妥的表述应是“原因未明，先不要自行推断路径问题”。
 
@@ -627,4 +645,4 @@ python3 scripts/aro_request.py workflow --workflow mp_transfer_history --keyword
 - HTTP 调用使用 `?apikey=MP_API_TOKEN`。
 - 不包含个人路径、API Key、Cookie 或 Token。
 - 推荐搭配支持 Skill 和工具调度的外部智能体使用，例如腾讯 WorkBuddy、Hermes、OpenClaw（小龙虾），或其他兼容 Skill 工作流的客户端。
-- 版本记录见 [CHANGELOG.md](./CHANGELOG.md)。
+- 版本记录见：`skills/agent-resource-officer/CHANGELOG.md`。
