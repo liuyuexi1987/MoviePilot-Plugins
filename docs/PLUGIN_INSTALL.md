@@ -179,6 +179,8 @@ MCP 地址：http://你的MP地址:3000/api/v1/mcp
 
 当前 Release：https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.2.68
 
+维护命令路径：`docs/MAINTENANCE_COMMANDS.md`
+
 如果你要打包、发布或维护仓库，再看：
 
 - [维护命令](./MAINTENANCE_COMMANDS.md)
