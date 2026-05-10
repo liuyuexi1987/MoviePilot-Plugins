@@ -82,7 +82,7 @@ ARO_BASE_URL=http://127.0.0.1:3000
 - 如果当前 MoviePilot 只用于网盘或 STRM，不要在这套实例里确认 PT 下载。
 - 如果 MoviePilot 和 qBittorrent 不在一台机器，可在 Agent影视助手设置里填写 `PT 下载保存路径`，路径要按目标 NAS / qB 的真实下载目录填写。
 
-跨机器部署详细说明见 [AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md](./AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)。
+跨机器部署详细说明见 [AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md](../../docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)。
 
 ---
 
@@ -126,7 +126,7 @@ MCP 地址：http://你的NAS地址:3000/api/v1/mcp
 | `115登录` | 扫码登录 115 |
 | `影巢签到` | 执行影巢签到 |
 
-完整命令列表见 [ALL_COMMANDS.md](./ALL_COMMANDS.md)。
+完整命令列表见 [ALL_COMMANDS.md](../../docs/ALL_COMMANDS.md)。
 
 ---
 
@@ -186,7 +186,7 @@ X-API-KEY=你的 MoviePilot API_TOKEN
 
 ## 相关文档
 
-- [全部命令一览](./ALL_COMMANDS.md)
-- [跨机器部署](./AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)
-- [Skill 说明](../skills/agent-resource-officer/SKILL.md)
-- [外部智能体详细规范](../skills/agent-resource-officer/EXTERNAL_AGENTS.md)
+- [全部命令一览](../../docs/ALL_COMMANDS.md)
+- [跨机器部署](../../docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)
+- [Skill 说明](./SKILL.md)
+- [外部智能体详细规范](./EXTERNAL_AGENTS.md)

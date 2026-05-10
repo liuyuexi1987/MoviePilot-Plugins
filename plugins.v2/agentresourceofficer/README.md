@@ -56,7 +56,7 @@
 
 - [外部智能体接入](../docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
 - [跨机器部署](../docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)
-- [全部命令](../docs/ALL_COMMANDS.md)
+- 全部命令：`docs/ALL_COMMANDS.md`
 
 ### MCP 和 Skill 怎么分工
 
@@ -118,7 +118,7 @@ n
 - `下载1`：给第 1 条 PT 结果生成下载计划。
 - `n`：下一页。
 
-完整命令见：[全部命令](../docs/ALL_COMMANDS.md)
+完整命令见：`docs/ALL_COMMANDS.md`
 
 ---
 
@@ -209,4 +209,4 @@ ARO_BASE_URL=http://你的NAS地址:3000
 - [插件安装说明](../docs/PLUGIN_INSTALL.md)
 - [外部智能体接入](../docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
 - [跨机器部署](../docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md)
-- [全部命令](../docs/ALL_COMMANDS.md)
+- 全部命令：`docs/ALL_COMMANDS.md`

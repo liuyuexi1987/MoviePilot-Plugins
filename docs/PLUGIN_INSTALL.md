@@ -105,7 +105,7 @@ QuarkShareSaver-0.1.0.zip
 影巢签到
 ```
 
-完整命令见：[全部命令](./ALL_COMMANDS.md)
+完整命令见：`docs/ALL_COMMANDS.md`
 
 ---
 
@@ -181,7 +181,6 @@ MCP 地址：http://你的MP地址:3000/api/v1/mcp
 
 如果你要打包、发布或维护仓库，再看：
 
-- [维护命令](docs/MAINTENANCE_COMMANDS.md)
 - [维护命令](./MAINTENANCE_COMMANDS.md)
 - [发布检查](./RELEASE_CHECKLIST.md)
 - [打包说明](./PACKAGING.md)

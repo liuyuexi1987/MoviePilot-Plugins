@@ -173,5 +173,5 @@ python3 scripts/aro_request.py route "115状态"
 ## 推荐阅读
 
 - [外部智能体接入](./AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
-- [全部命令](./ALL_COMMANDS.md)
+- 全部命令：`docs/ALL_COMMANDS.md`
 - [插件安装说明](./PLUGIN_INSTALL.md)

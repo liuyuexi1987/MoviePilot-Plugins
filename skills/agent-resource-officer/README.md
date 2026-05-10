@@ -427,7 +427,7 @@ AI 失败样本链现在分两步：
 WorkBuddy、Hermes、OpenClaw（小龙虾）、微信侧智能体或其他外部智能体接入时，可以直接复用：
 
 - [外部智能体接入 Agent影视助手](../../docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md)
-- [Skill 包内外部智能体接入文件](./EXTERNAL_AGENTS.md)
+- Skill 包内外部智能体接入文件：`skills/agent-resource-officer/EXTERNAL_AGENTS.md`
 - `PROMPTS.md` 里的外部智能体提示词段落
 
 `decide` 是单次决策入口：
@@ -645,4 +645,4 @@ python3 scripts/aro_request.py workflow --workflow mp_transfer_history --keyword
 - HTTP 调用使用 `?apikey=MP_API_TOKEN`。
 - 不包含个人路径、API Key、Cookie 或 Token。
 - 推荐搭配支持 Skill 和工具调度的外部智能体使用，例如腾讯 WorkBuddy、Hermes、OpenClaw（小龙虾），或其他兼容 Skill 工作流的客户端。
-- 版本记录见 [CHANGELOG.md](./CHANGELOG.md)。
+- 版本记录见：`skills/agent-resource-officer/CHANGELOG.md`。
