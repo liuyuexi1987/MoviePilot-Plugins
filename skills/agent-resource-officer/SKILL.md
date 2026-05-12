@@ -224,6 +224,8 @@ When a user says `更新 <片名>`, `更新检查 <片名>`, `查更新 <片名>
 
 For update-check results, relay the plugin's returned message exactly. Preserve the emoji sections and item lines such as `🟨 盘搜结果`, `🟦 影巢结果`, `🗄 #25 夸克`, `📺 #1 115`, `🕒05/02`, and `📌 E01-E09`. Do not transform them into field-table prose like `#: ... 来源: ... 详情: ... 日期: ...`, and do not replace the list with a summary.
 
+For update-check results, relay the plugin's returned message exactly. Preserve the emoji sections and item lines such as `🟨 盘搜结果`, `🟦 影巢结果`, `🗄 #25 夸克`, `📺 #1 115`, `🕒05/02`, and `📌 E01-E09`. Do not transform them into field-table prose like `#: ... 来源: ... 详情: ... 日期: ...`, and do not replace the list with a summary.
+
 When a user says `刷新影巢Cookie`, do not route that phrase into AgentResourceOfficer. Treat it as a host-side repair action and run:
 
 ```bash

@@ -187,6 +187,7 @@ class AgentResourceOfficer(_PluginBase):
     _p115_service: Optional[P115TransferService] = None
     _feishu_channel: Optional[FeishuChannel] = None
     _session_cache: Dict[str, Dict[str, Any]] = {}
+    _session_lock = threading.RLock()
     _agent_tools_reloaded = False
     _candidate_actor_cache: Dict[str, List[str]] = {}
     _candidate_actor_cache_lock = threading.Lock()
@@ -376,6 +377,46 @@ class AgentResourceOfficer(_PluginBase):
                     cleaned = re.sub(token, "", compact, flags=re.IGNORECASE).strip()
                     return cleaned or raw, intent
         return raw, ""
+
+    @classmethod
+    def _extract_mp_result_filter_intent(cls, text: str) -> Tuple[str, str]:
+        raw = str(text or "").strip()
+        if not raw:
+            return "", ""
+        episode_patterns = [
+            r"(?:给我|帮我|只看|看看|看一下|要|下)?\s*s\d{1,2}\s*e0*(\d{1,3})\s*(?:集|资源|结果)?",
+            r"(?:给我|帮我|只看|看看|看一下|要|下)?\s*e0*(\d{1,3})\s*(?:集|资源|结果)?",
+            r"(?:给我|帮我|只看|看看|看一下|要|下)?\s*第\s*(\d{1,3})\s*集\s*(?:资源|结果)?",
+            r"(?:给我|帮我|只看|看看|看一下|要|下)?\s*第\s*([零〇一二两三四五六七八九十]{1,4})\s*集\s*(?:资源|结果)?",
+        ]
+        for pattern in episode_patterns:
+            match = re.search(pattern, raw, flags=re.IGNORECASE)
+            if not match:
+                continue
+            raw_episode = match.group(1)
+            if str(raw_episode).isdigit():
+                episode = int(raw_episode)
+            else:
+                episode = cls._parse_simple_cjk_number(str(raw_episode)) or 0
+            if episode <= 0:
+                continue
+            cleaned = (raw[:match.start()] + " " + raw[match.end():]).strip(" ：:，,。")
+            cleaned = re.sub(r"\s+", " ", cleaned).strip()
+            return cleaned or raw, f"episode:{episode}"
+        patterns = [
+            r"(?:给我|帮我|只看|看看|看一下)?最新(?:一)?集(?:资源|结果)?",
+            r"(?:给我|帮我|只看|看看|看一下)?最新(?:两|2)集(?:资源|结果)?",
+            r"只(?:要|看)(?:当前)?最新",
+        ]
+        cleaned = raw
+        matched = False
+        for pattern in patterns:
+            new_value = re.sub(pattern, " ", cleaned, flags=re.IGNORECASE)
+            if new_value != cleaned:
+                matched = True
+                cleaned = new_value
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" ：:，,。")
+        return (cleaned or raw, "latest_episode") if matched else (raw, "")
 
     async def _assistant_smart_decision_followup_detail(
         self,
@@ -606,7 +647,39 @@ class AgentResourceOfficer(_PluginBase):
             "run",
             "确定",
             "确定执行",
+            "执行下载",
+            "确认下载",
+            "开始下载",
+            "下载吧",
         }
+
+    @classmethod
+    def _parse_pending_plan_numeric_confirmation(cls, value: Any) -> int:
+        raw = cls._normalize_fullwidth_digits(cls._clean_text(value))
+        if not raw:
+            return 0
+        compact = re.sub(r"[\s，。？！!?,、:：；;“”\"'（）()【】\[\]]+", "", raw)
+        # Only a bare number or explicit execution wording may confirm a saved plan.
+        # Keep "下载1" for generating/reviewing the PT download plan in the current
+        # search result; otherwise it can accidentally execute an older pending plan.
+        match = re.fullmatch(r"(?:执行|确认|执行计划|确认计划)?(\d+)", compact, flags=re.IGNORECASE)
+        if not match:
+            return 0
+        return cls._safe_int(match.group(1), 0)
+
+    def _is_pending_plan_numeric_confirmation(self, value: Any, plan: Optional[Dict[str, Any]]) -> bool:
+        index = self._parse_pending_plan_numeric_confirmation(value)
+        if index <= 0 or not isinstance(plan, dict):
+            return False
+        expected_choices: List[int] = []
+        execute_body = plan.get("execute_body") if isinstance(plan.get("execute_body"), dict) else {}
+        expected_choices.append(self._safe_int(execute_body.get("plan_rank"), 0))
+        expected_choices.append(self._safe_int(execute_body.get("choice") or execute_body.get("index"), 0))
+        for action in plan.get("actions") or []:
+            if isinstance(action, dict):
+                expected_choices.append(self._safe_int(action.get("plan_rank"), 0))
+                expected_choices.append(self._safe_int(action.get("choice") or action.get("index"), 0))
+        return index in {choice for choice in expected_choices if choice > 0}
 
     @classmethod
     def _normalize_ai_reingest_short_action(
@@ -2325,7 +2398,7 @@ class AgentResourceOfficer(_PluginBase):
                         },
                         "content": [
                             text_line(
-                                "Agent影视助手支持三种接入模式：飞书直接发命令、外部智能体调用 skill/helper、MP 内置智能体调用 Agent Tool。",
+                                "Agent影视助手支持四种接入模式：飞书直接发命令、外部智能体直连官方 MCP、外部智能体调用 skill/helper、MP 内置智能体调用 Agent Tool。",
                                 "text-body-2 mb-3",
                             ),
                             text_line(
@@ -3452,11 +3525,13 @@ class AgentResourceOfficer(_PluginBase):
     def _save_session(self, session_id: str, payload: Dict[str, Any]) -> None:
         payload = dict(payload)
         payload["updated_at"] = int(time.time())
-        self._session_cache[session_id] = payload
+        with self._session_lock:
+            self._session_cache[session_id] = payload
         self._persist_relevant_sessions()
 
     def _load_session(self, session_id: str) -> Optional[Dict[str, Any]]:
-        session = self._session_cache.get(session_id)
+        with self._session_lock:
+            session = self._session_cache.get(session_id)
         if not session:
             return None
         return dict(session)
@@ -3464,12 +3539,13 @@ class AgentResourceOfficer(_PluginBase):
     def _persist_relevant_sessions(self) -> None:
         try:
             data: Dict[str, Dict[str, Any]] = {}
-            for session_id, payload in (self._session_cache or {}).items():
-                session = dict(payload or {})
-                if self._is_session_expired(session):
-                    continue
-                if str(session_id).startswith("assistant::") or session.get("pending_p115") or str(session.get("kind") or "").strip() == "assistant_p115_login":
-                    data[session_id] = session
+            with self._session_lock:
+                for session_id, payload in (self._session_cache or {}).items():
+                    session = dict(payload or {})
+                    if self._is_session_expired(session):
+                        continue
+                    if str(session_id).startswith("assistant::") or session.get("pending_p115") or str(session.get("kind") or "").strip() == "assistant_p115_login":
+                        data[session_id] = session
             self.save_data(key=self._session_store_key, value=data)
         except Exception:
             pass
@@ -3478,9 +3554,10 @@ class AgentResourceOfficer(_PluginBase):
         try:
             restored = self.get_data(self._session_store_key) or {}
             if isinstance(restored, dict):
-                for session_id, payload in restored.items():
-                    if isinstance(payload, dict) and not self._is_session_expired(payload):
-                        self._session_cache[str(session_id)] = dict(payload)
+                with self._session_lock:
+                    for session_id, payload in restored.items():
+                        if isinstance(payload, dict) and not self._is_session_expired(payload):
+                            self._session_cache[str(session_id)] = dict(payload)
         except Exception:
             pass
 
@@ -5867,6 +5944,7 @@ class AgentResourceOfficer(_PluginBase):
         media = getattr(context, "media_info", None)
         item = {
             "index": index,
+            "cache_index": index,
             "torrent_info": {
                 "title": self._clean_text(getattr(torrent, "title", "")),
                 "size": self._format_bytes_size(getattr(torrent, "size", None)),
@@ -6045,7 +6123,20 @@ class AgentResourceOfficer(_PluginBase):
                 elif risks:
                     details.append("提醒：" + "；".join(str(item) for item in risks[:2]))
                 lines.append("   " + " | ".join(details))
-            lines.extend(self._format_score_summary_decision_lines(score_summary))
+            decision_lines = self._format_score_summary_decision_lines(score_summary)
+            if result_filter == "latest_episode" or result_filter.startswith("episode:"):
+                normalized_decision_lines: List[str] = []
+                for line in decision_lines:
+                    if line.startswith("下一步："):
+                        continue
+                    if line.startswith("建议："):
+                        line = line.replace(
+                            "建议先看详情再决定",
+                            "可直接生成下载计划，计划不会立即执行",
+                        )
+                    normalized_decision_lines.append(line)
+                decision_lines = normalized_decision_lines
+            lines.extend(decision_lines)
             if page < total_pages:
                 lines.append("如需继续翻页，可回复：n 下一页")
             lines.append("回复编号直接下载；如需显式计划可发“下载N”；n 下一页。")
@@ -6126,6 +6217,9 @@ class AgentResourceOfficer(_PluginBase):
                 total=total,
                 page=page,
                 page_size=page_size,
+                result_filter=effective_filter,
+                latest_episode=latest_episode,
+                episode_filter=episode_filter,
             ),
             "data": self._assistant_response_data(session=session, data={
                 "action": "mp_media_search",
@@ -6231,17 +6325,28 @@ class AgentResourceOfficer(_PluginBase):
         except Exception:
             cache = None
         results = (cache or {}).get("results") or []
-        if choice <= 0 or choice > len(results):
+        item, available_indexes = self._assistant_mp_item_by_display_index(
+            choice=choice,
+            cache_key=cache_key,
+            preferences=preferences,
+        )
+        if not item:
+            available_text = "、".join(str(index) for index in available_indexes[:20])
             return {
                 "success": False,
-                "message": f"序号超出范围，请输入 1 到 {len(results)} 之间的数字。" if results else "没有可继续的 MP 搜索结果，请先发送“MP搜索 片名”。",
+                "message": (
+                    f"当前列表没有 #{choice}。可选编号：{available_text}。"
+                    if available_text
+                    else "没有可继续的 MP 搜索结果，请先发送“MP搜索 片名”。"
+                ),
                 "data": self._assistant_response_data(session=session, data={
                     "action": "mp_search_result_detail",
                     "ok": False,
                     "error_code": "mp_result_not_found",
+                    "choice": choice,
+                    "available_indexes": available_indexes,
                 }),
             }
-        item = self._mp_context_preview_item(results[choice - 1], choice, preferences=preferences)
         torrent = item.get("torrent_info") or {}
         meta = item.get("meta_info") or {}
         media = item.get("media_info") or {}
@@ -6292,7 +6397,7 @@ class AgentResourceOfficer(_PluginBase):
             "kind": "assistant_mp",
             "stage": "search_result",
             "keyword": (cache or {}).get("keyword") or current_state.get("keyword") or "",
-            "items": self._mp_search_cache_preview(
+            "items": current_state.get("items") or self._mp_search_cache_preview(
                 cache_key,
                 preferences=preferences,
                 page=max(1, self._safe_int(current_state.get("page"), 1)),
@@ -6410,6 +6515,125 @@ class AgentResourceOfficer(_PluginBase):
             data["item"] = best
             result["data"] = data
         return result
+
+    def _assistant_format_download_plan_choice(self, *, rank: int, plan_id: str, item: Dict[str, Any]) -> str:
+        torrent = item.get("torrent_info") if isinstance(item.get("torrent_info"), dict) else {}
+        score = item.get("score") if isinstance(item.get("score"), dict) else {}
+        title = self._display_pt_title(torrent.get("title"))
+        badges = self._pt_title_badges(torrent.get("title"))
+        site = self._clean_text(torrent.get("site_name")) or "未知站点"
+        seeders = torrent.get("seeders") if torrent.get("seeders") is not None else "?"
+        size = self._clean_text(torrent.get("size")) or "未知"
+        score_label = self._format_score_label(item)
+        risk_text = self._assistant_score_warning_text(score, limit=1).replace("风险提示：", "")
+        suffix = f" | 提醒：{risk_text}" if risk_text else ""
+        badge_text = f" {badges}" if badges else ""
+        return (
+            f"{rank}. {plan_id} | 资源 #{self._safe_int(item.get('index'), 0)} | "
+            f"🧲【{site}】 {title}{badge_text}\n"
+            f"   🌱 做种：{seeders} | {self._pt_promotion_text(torrent.get('volume_factor'))} | 💾 {size} | ⭐ {score_label}{suffix}"
+        )
+
+    async def _assistant_attach_download_plan_choices(
+        self,
+        result: Dict[str, Any],
+        *,
+        session: str,
+        cache_key: str,
+        preferences: Dict[str, Any],
+        limit: int = 3,
+    ) -> Dict[str, Any]:
+        if not isinstance(result, dict) or not result.get("success"):
+            return result
+        result_data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        preview = [
+            dict(item or {})
+            for item in (result_data.get("items") or [])
+            if isinstance(item, dict)
+        ]
+        if not preview:
+            preview = self._mp_search_cache_preview(cache_key, preferences=preferences, limit=self._assistant_result_page_size)
+        scored = [
+            item for item in preview
+            if isinstance(item, dict) and isinstance(item.get("score"), dict)
+        ]
+        scored.sort(
+            key=lambda item: (
+                self._safe_int((item.get("score") or {}).get("score"), 0),
+                self._safe_int(((item.get("torrent_info") or {}).get("seeders")), 0),
+            ),
+            reverse=True,
+        )
+        choices = scored[:max(1, min(3, self._safe_int(limit, 3)))]
+        if not choices:
+            return result
+        group_id = self._new_session_id("mpdl")
+        plan_rows: List[str] = []
+        plan_items: List[Dict[str, Any]] = []
+        for rank, item in enumerate(choices, start=1):
+            plan_result = self._assistant_mp_download_plan_response(
+                choice=self._safe_int(item.get("index"), 0),
+                session=session,
+                cache_key=cache_key,
+                preferences=preferences,
+                workflow="mp_download_choice",
+                message=f"下载方案 {rank} 已生成",
+            )
+            if not plan_result.get("success"):
+                continue
+            plan_data = plan_result.get("data") or {}
+            plan_id = self._clean_text(plan_data.get("plan_id"))
+            if plan_id and isinstance(self._workflow_plans.get(plan_id), dict):
+                execute_body = self._workflow_plans[plan_id].get("execute_body")
+                if not isinstance(execute_body, dict):
+                    execute_body = {}
+                execute_body.update({
+                    "plan_rank": rank,
+                    "multi_plan_group": group_id,
+                })
+                self._workflow_plans[plan_id]["execute_body"] = execute_body
+                self._workflow_plans[plan_id]["plan_rank"] = rank
+                self._workflow_plans[plan_id]["plan_choice"] = self._safe_int(item.get("index"), 0)
+                self._workflow_plans[plan_id]["multi_plan_group"] = group_id
+                self._persist_workflow_plans()
+            plan_rows.append(self._assistant_format_download_plan_choice(rank=rank, plan_id=plan_id, item=item))
+            plan_items.append({
+                "rank": rank,
+                "plan_id": plan_id,
+                "choice": self._safe_int(item.get("index"), 0),
+                "item": item,
+            })
+        if not plan_items:
+            return result
+        current_state = self._load_session(cache_key) or {}
+        self._save_session(cache_key, {
+            **current_state,
+            "kind": "assistant_mp_download_plans",
+            "stage": "download_plan_choices",
+            "pending_plan_group": group_id,
+            "plan_choices": plan_items,
+            "source_search": result.get("data") or {},
+        })
+        merged = {
+            "success": True,
+            "message": "\n".join([
+                f"已按当前偏好生成 {len(plan_items)} 个待确认下载方案，均未实际下载：",
+                *plan_rows,
+                "回复方案编号 1/2/3 执行对应方案；回复“选择 资源编号”可先看详情。",
+            ]),
+        }
+        data = {
+            "action": "mp_download_plan_choices",
+            "ok": True,
+            "pending_plan_group": group_id,
+            "plan_choices": plan_items,
+            "ready_to_execute": True,
+            "write_effect": "state",
+        }
+        data["source_search"] = result.get("data") or {}
+        data["source_search_message"] = self._clean_text(result.get("message"))
+        merged["data"] = self._assistant_response_data(session=session, data=data)
+        return merged
 
     def _assistant_smart_search_stop_after_source(
         self,
@@ -7977,14 +8201,20 @@ class AgentResourceOfficer(_PluginBase):
         preview = self._mp_search_cache_preview(cache_key, preferences=preferences, limit=self._assistant_result_page_size)
         selected = next((item for item in preview if self._safe_int(item.get("index"), 0) == choice), {})
         if not selected:
+            available_text = "、".join(str(index) for index in available_indexes[:20])
             return {
                 "success": False,
-                "message": "没有可继续的 MP 搜索结果，请先发送“MP搜索 片名”后再选择编号。",
+                "message": (
+                    f"当前列表没有 #{choice}，不会生成下载计划。可选编号：{available_text}。"
+                    if available_text
+                    else "没有可继续的 MP 搜索结果，请先发送“MP搜索 片名”后再选择编号。"
+                ),
                 "data": self._assistant_response_data(session=session, data={
                     "action": "mp_download",
                     "ok": False,
                     "error_code": "mp_result_not_found",
                     "choice": choice,
+                    "available_indexes": available_indexes,
                 }),
             }
         result = self._save_assistant_pick_plan_response(
@@ -8189,11 +8419,17 @@ class AgentResourceOfficer(_PluginBase):
         preview = self._mp_search_cache_preview(cache_key, preferences=preferences, limit=self._assistant_result_page_size)
         selected = next((item for item in preview if self._safe_int(item.get("index"), 0) == choice), {})
         score = selected.get("score") if isinstance(selected.get("score"), dict) else {}
-        message_text = self._ensure_feishu_channel()._execute_media_download(choice, cache_key)
-        ok = not message_text.startswith("下载资源失败") and not message_text.startswith("没有可用")
+        cache_choice = self._safe_int(selected.get("cache_index"), choice)
+        message_text = self._ensure_feishu_channel()._execute_media_download(cache_choice, cache_key)
+        ok = not message_text.startswith((
+            "下载资源失败",
+            "下载提交失败",
+            "没有可用",
+            "序号超出范围",
+        )) and "无法连接" not in message_text and "添加下载任务失败" not in message_text
         warning = self._assistant_score_warning_text(score)
         if warning:
-            message_text = f"{warning}\n{message_text}".strip()
+            message_text = f"{message_text}\n{warning}".strip()
         return {
             "success": ok,
             "message": message_text,
@@ -8201,6 +8437,7 @@ class AgentResourceOfficer(_PluginBase):
                 "action": "mp_download",
                 "ok": ok,
                 "choice": choice,
+                "cache_choice": cache_choice,
                 "selected": selected,
                 "score": score,
                 "write_effect": "write",
@@ -11268,9 +11505,11 @@ class AgentResourceOfficer(_PluginBase):
         command_summary = self._assistant_compact_command_summary(data)
         if command_summary:
             data.update(command_summary)
+        choice = self._safe_int(data.get("choice"), 0)
+        confirm_hint = f"回复“执行计划”或“{choice}”确认执行。" if choice > 0 else "回复“执行计划”确认执行。"
         return {
             "success": True,
-            "message": f"{message}：{plan_id}\n未实际执行。回复“执行计划 {plan_id}”后才会写入。",
+            "message": f"{message}：{plan_id}\n未实际执行。{confirm_hint}",
             "data": self._assistant_response_data(session=session, data=data),
         }
 
@@ -11310,6 +11549,46 @@ class AgentResourceOfficer(_PluginBase):
                 continue
             return dict(plan)
         return None
+
+    def _find_pending_multi_plan(
+        self,
+        *,
+        session: str,
+        session_id: str,
+        rank: int = 0,
+        choice: int = 0,
+        group_id: str = "",
+    ) -> Optional[Dict[str, Any]]:
+        session_filter, session_id_filter = self._normalize_assistant_session_ref(
+            session=session,
+            session_id=session_id,
+        )
+        if not session_id_filter:
+            return None
+        candidates: List[Dict[str, Any]] = []
+        for plan in (self._workflow_plans or {}).values():
+            if not isinstance(plan, dict) or bool(plan.get("executed")):
+                continue
+            if self._clean_text(plan.get("session_id")) != session_id_filter:
+                continue
+            execute_body = plan.get("execute_body") if isinstance(plan.get("execute_body"), dict) else {}
+            plan_group = self._clean_text(plan.get("multi_plan_group") or execute_body.get("multi_plan_group"))
+            if group_id and plan_group != group_id:
+                continue
+            plan_rank = self._safe_int(plan.get("plan_rank") or execute_body.get("plan_rank"), 0)
+            plan_choice = self._safe_int(plan.get("plan_choice") or execute_body.get("choice") or execute_body.get("index"), 0)
+            if rank > 0 and plan_rank != rank:
+                continue
+            if choice > 0 and plan_choice != choice and plan_rank != choice:
+                continue
+            candidates.append(dict(plan))
+        candidates.sort(
+            key=lambda item: (
+                -self._safe_int(item.get("created_at"), 0),
+                self._safe_int(item.get("plan_rank") or (item.get("execute_body") or {}).get("plan_rank"), 999),
+            )
+        )
+        return candidates[0] if candidates else None
 
     def _workflow_plan_public_item(self, plan: Dict[str, Any], *, include_actions: bool = False) -> Dict[str, Any]:
         current = dict(plan or {})
@@ -17900,6 +18179,9 @@ class AgentResourceOfficer(_PluginBase):
         action = self._clean_text(body.get("action"))
         if action:
             merged["action"] = action
+        result_filter = self._clean_text(body.get("result_filter") or body.get("filter")).lower()
+        if result_filter in {"latest_episode", "latest", "latest_episodes"}:
+            merged["result_filter"] = "latest_episode"
         plan_id = self._clean_text(body.get("plan_id") or body.get("plan"))
         if plan_id:
             merged["plan_id"] = plan_id
@@ -17931,6 +18213,7 @@ class AgentResourceOfficer(_PluginBase):
             "path": "",
             "mode": mode,
             "keyword": query or remain,
+            "result_filter": "",
             "source_order_text": "",
             "cloud_provider": "",
             "type": "",
@@ -18725,11 +19008,11 @@ class AgentResourceOfficer(_PluginBase):
                                 options["cloud_provider"] = "115"
                             break
                         if action == "mp_download":
-                            download_match = re.search(r"\d+", remain_text)
+                            download_match = re.fullmatch(r"[#＃]?\s*(\d+)", remain_text)
                             if download_match:
                                 options["action"] = action
                                 options["mode"] = ""
-                                options["keyword"] = download_match.group(0)
+                                options["keyword"] = download_match.group(1)
                             else:
                                 options["action"] = ""
                                 options["mode"] = "mp_download_title"
@@ -18752,7 +19035,7 @@ class AgentResourceOfficer(_PluginBase):
                             options["cloud_provider"] = "115"
                             break
                         if action == "mp_download":
-                            download_match = re.search(r"\d+", remain_text)
+                            download_match = re.fullmatch(r"[#＃]?\s*(\d+)", remain_text)
                             if not download_match:
                                 options["action"] = ""
                                 options["mode"] = "mp_download_title"
@@ -18761,7 +19044,7 @@ class AgentResourceOfficer(_PluginBase):
                                 break
                             options["action"] = action
                             options["mode"] = ""
-                            options["keyword"] = download_match.group(0)
+                            options["keyword"] = download_match.group(1)
                             break
                         options["action"] = action
                         options["mode"] = ""
@@ -19154,6 +19437,53 @@ class AgentResourceOfficer(_PluginBase):
             reverse=True,
         )
         return matches[: max(1, limit)]
+
+    def _latest_episode_mp_items(self, items: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], int]:
+        candidates: List[Dict[str, Any]] = []
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            progress = self._extract_series_progress(self._score_text_blob(item))
+            max_episode = self._safe_int(progress.get("max_episode"), 0)
+            if max_episode <= 0:
+                continue
+            enriched = dict(item)
+            enriched["_series_progress"] = progress
+            candidates.append(enriched)
+        if not candidates:
+            return [], 0
+        latest_episode = max(self._safe_int((item.get("_series_progress") or {}).get("max_episode"), 0) for item in candidates)
+        if latest_episode <= 0:
+            return [], 0
+        latest_items = [
+            item for item in candidates
+            if self._safe_int((item.get("_series_progress") or {}).get("max_episode"), 0) == latest_episode
+        ]
+        return latest_items, latest_episode
+
+    def _episode_filter_mp_items(self, items: List[Dict[str, Any]], episode: int) -> List[Dict[str, Any]]:
+        target = self._safe_int(episode, 0)
+        if target <= 0:
+            return []
+        matches: List[Dict[str, Any]] = []
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            progress = self._extract_series_progress(self._score_text_blob(item))
+            max_episode = self._safe_int(progress.get("max_episode"), 0)
+            episode_count = self._safe_int(progress.get("episode_count"), 0)
+            if max_episode == target:
+                enriched = dict(item)
+                enriched["_series_progress"] = progress
+                matches.append(enriched)
+                continue
+            if episode_count > 0 and max_episode >= target:
+                start_episode = max(1, max_episode - episode_count + 1)
+                if start_episode <= target <= max_episode:
+                    enriched = dict(item)
+                    enriched["_series_progress"] = progress
+                    matches.append(enriched)
+        return matches
 
     def _latest_resource_date_text(self, items: List[Dict[str, Any]]) -> str:
         latest_text = ""
@@ -19752,7 +20082,7 @@ class AgentResourceOfficer(_PluginBase):
             global_index = self._safe_int(item.get("pick_index"), start + local_idx)
             lines.append(self._format_hdhive_resource_summary_line(item, global_index))
             lines.append("")
-        summary = self._score_summary(resources, limit=5)
+        summary = self._score_summary(page_items, limit=5)
         best_index = self._safe_int((((summary or {}).get("best") or {}).get("index")), 0)
         detail_hint = f"选择 {best_index} 详情" if best_index > 0 else "选择 1 详情"
         suggestion_lines = self._format_hdhive_selection_suggestion(resources)
@@ -21224,9 +21554,23 @@ class AgentResourceOfficer(_PluginBase):
         def immediate(result: Dict[str, Any]) -> Dict[str, Any]:
             return result
 
+        pending_plan_group = self._clean_text(state.get("pending_plan_group"))
+        numeric_confirmation = self._parse_pending_plan_numeric_confirmation(text)
+        pending_multi_plan = None
+        if pending_plan_group and (numeric_confirmation > 0 or self._is_pending_plan_confirmation_text(text)):
+            pending_multi_plan = self._find_pending_multi_plan(
+                session=session,
+                session_id=cache_key,
+                rank=numeric_confirmation if numeric_confirmation > 0 else 1,
+                group_id=pending_plan_group,
+            )
+        pending_plan = pending_multi_plan or self._find_workflow_plan(session=session, session_id=cache_key, executed=False)
         if (
-            saved_plan.get("has_pending")
-            and self._is_pending_plan_confirmation_text(text)
+            pending_plan
+            and (
+                self._is_pending_plan_confirmation_text(text)
+                or self._is_pending_plan_numeric_confirmation(text, pending_plan)
+            )
             and not self._clean_text(body.get("plan_id"))
         ):
             if isinstance(state.get("recommend_handoff"), dict) and state.get("recommend_handoff"):
@@ -21242,6 +21586,7 @@ class AgentResourceOfficer(_PluginBase):
                 _JsonRequestShim(request, {
                     "session": session,
                     "session_id": cache_key,
+                    "plan_id": self._clean_text(pending_plan.get("plan_id")) if pending_multi_plan else "",
                     "prefer_unexecuted": True,
                     "stop_on_error": self._parse_bool_value(body.get("stop_on_error"), True),
                     "include_raw_results": self._parse_bool_value(body.get("include_raw_results"), False),
@@ -22352,6 +22697,7 @@ class AgentResourceOfficer(_PluginBase):
         mode = parsed.get("mode") or "hdhive"
         media_type = self._clean_text(parsed.get("type") or "auto").lower() or "auto"
         year = self._clean_text(parsed.get("year"))
+        result_filter = self._clean_text(parsed.get("result_filter")).lower()
         decision_intent = self._clean_text(parsed.get("decision_intent")).lower()
         source_order = body.get("source_order") if isinstance(body.get("source_order"), list) else None
         if not source_order:
@@ -22460,6 +22806,56 @@ class AgentResourceOfficer(_PluginBase):
                 source_order=["mp_pt"],
                 target_path=target_path,
                 origin=origin or "mp_download_title",
+            ))
+
+        if mode == "mp_download_title":
+            if not keyword:
+                return finish({
+                    "success": False,
+                    "message": "用法：下载 片名",
+                    "data": self._assistant_response_data(session=session, data={
+                        "action": "mp_download_title",
+                        "ok": False,
+                        "error_code": "missing_keyword",
+                    }),
+                })
+            if not self._keyword_has_explicit_year(keyword, year):
+                candidate_result = await self._assistant_mp_candidate_search(
+                    keyword=keyword,
+                    session=session,
+                    cache_key=cache_key,
+                    media_type=media_type,
+                    year=year,
+                    pending_action={
+                        "mode": "mp_download_title",
+                        "label": "生成待确认下载计划",
+                        "result_filter": result_filter,
+                    },
+                    target_path=target_path,
+                )
+                candidates = (candidate_result.get("data") or {}).get("candidates") or []
+                if len(candidates) > 1:
+                    return finish(candidate_result)
+                if len(candidates) == 1:
+                    candidate = dict(candidates[0] or {})
+                    candidate_title = self._clean_text(candidate.get("title")) or keyword
+                    candidate_year = self._clean_text(candidate.get("year"))
+                    keyword = f"{candidate_title} {candidate_year}".strip() if candidate_year and candidate_year not in candidate_title else candidate_title
+                    media_type = self._clean_text(candidate.get("media_type") or media_type or "auto").lower() or "auto"
+                    year = candidate_year or year
+            preferences = self._normalize_assistant_preferences((self._assistant_preferences or {}).get(self._normalize_preference_key(session=session)))
+            result = await self._assistant_mp_media_search(
+                keyword=keyword,
+                session=session,
+                cache_key=cache_key,
+                preferences=preferences,
+                result_filter=result_filter,
+            )
+            return finish(await self._assistant_attach_download_plan_choices(
+                result,
+                session=session,
+                cache_key=cache_key,
+                preferences=preferences,
             ))
 
         if mode == "smart":
@@ -22766,6 +23162,7 @@ class AgentResourceOfficer(_PluginBase):
                 session=session,
                 cache_key=cache_key,
                 preferences=preferences,
+                result_filter=result_filter,
             )
             mp_items = (result.get("data") or {}).get("items") or []
             if (not result.get("success") or not mp_items) and keyword:
@@ -25831,6 +26228,9 @@ class AgentResourceOfficer(_PluginBase):
                         total=total,
                         page=next_page,
                         page_size=page_size,
+                        result_filter=self._clean_text(state.get("result_filter")),
+                        latest_episode=self._safe_int(state.get("latest_episode"), 0),
+                        episode_filter=self._safe_int(state.get("episode_filter"), 0),
                     ),
                     "data": self._assistant_response_data(session=session, data={
                         "action": "mp_media_search_next_page",

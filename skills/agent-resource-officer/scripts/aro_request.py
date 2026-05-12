@@ -18,6 +18,7 @@ WORKBUDDY_GUIDE_PATH = EXTERNAL_AGENT_GUIDE_PATH
 HELPER_VERSION = "0.1.43"
 HELPER_COMMANDS = [
     "auto",
+    "calibrate",
     "commands",
     "config-check",
     "decide",
@@ -53,6 +54,15 @@ HELPER_COMMANDS = [
     "external-agent",
     "workbuddy",
 ]
+CALIBRATION_COMMANDS = {
+    "校准影视技能",
+    "影视技能校准",
+    "校准资源技能",
+    "资源技能校准",
+    "校准aro",
+    "aro校准",
+    "校准agentresourceofficer",
+}
 WRITE_WORKFLOWS = {
     "pansou_transfer",
     "hdhive_unlock",
@@ -581,6 +591,55 @@ def load_json_arg(value):
 def normalize_command_args(args):
     extra = list(getattr(args, "extra", []) or [])
     command = str(getattr(args, "command", "") or "").strip()
+
+    # argparse's trailing `extra` is intentionally permissive so agents can
+    # write `route "text" --session s1`. Pull common helper options back out
+    # of that tail before treating it as user text.
+    option_targets = {
+        "--session": "session",
+        "--session-id": "session_id",
+        "--plan-id": "plan_id",
+        "--path": "target_path",
+        "--api-path": "api_path",
+        "--method": "method",
+        "--json": "json_body",
+    }
+    flag_targets = {
+        "--json-output": "json_output",
+        "--summary-only": "summary_only",
+        "--full": "full",
+        "--execute": "execute",
+        "--confirmed": "confirmed",
+    }
+    cleaned_extra = []
+    index = 0
+    while index < len(extra):
+        item = str(extra[index]).strip()
+        if not item:
+            index += 1
+            continue
+        if item in flag_targets:
+            setattr(args, flag_targets[item], True)
+            index += 1
+            continue
+        if item in option_targets:
+            if index + 1 < len(extra):
+                setattr(args, option_targets[item], str(extra[index + 1]).strip())
+                index += 2
+                continue
+        matched_option = False
+        for option_name, attr_name in option_targets.items():
+            prefix = option_name + "="
+            if item.startswith(prefix):
+                setattr(args, attr_name, item[len(prefix):].strip())
+                matched_option = True
+                break
+        if matched_option:
+            index += 1
+            continue
+        cleaned_extra.append(extra[index])
+        index += 1
+    extra = cleaned_extra
 
     if command == "route":
         if not getattr(args, "text", None) and extra:
@@ -1270,6 +1329,76 @@ def shell_quote(value):
     return "'" + text.replace("'", "'\"'\"'") + "'"
 
 
+def normalize_calibration_text(text):
+    return (
+        str(text or "")
+        .strip()
+        .lower()
+        .replace(" ", "")
+        .replace("\u3000", "")
+        .replace("-", "")
+        .replace("_", "")
+    )
+
+
+def is_calibration_text(text):
+    normalized = normalize_calibration_text(text)
+    return normalized in CALIBRATION_COMMANDS
+
+
+def calibration_payload():
+    return {
+        "success": True,
+        "action": "calibrate_media_skill",
+        "helper_version": HELPER_VERSION,
+        "message": "影视技能已校准。",
+        "read_files": [
+            "skills/agent-resource-officer/SKILL.md",
+            "skills/agent-resource-officer/EXTERNAL_AGENTS.md",
+        ],
+        "recommended_command": "python3 scripts/aro_request.py calibrate",
+        "route_alias": "python3 scripts/aro_request.py route '校准影视技能'",
+        "agent_instruction": "重新加载 agent-resource-officer skill 的资源流语义；日常执行不必每次完整读文件，但会话压缩、行为漂移、命令边界不确定时必须重新校准。",
+        "hard_rules": [
+            "资源流必须走 agent-resource-officer skill/helper，不要自己改写成 MCP、curl、TMDB 或底层网盘 API。",
+            "下载 <片名> = MoviePilot 原生 MP/PT；片名不明确先选影片，片名明确后直接生成最多 3 个最佳 PT 候选的待确认下载方案，不展示完整 PT 列表、不走云盘、不自动提交真实下载。",
+            "下载候选影片列表出来后，必须保持同一个 helper session，把用户回复的候选编号原样 route 回去；不要改写成 下载 <候选标题 年份>。",
+            "下载链路如果选定影片后没有 PT 资源，只能报告无 PT 可下载；不能自动补查盘搜、影巢、夸克或 115。",
+            "只有在当前会话刚生成待确认下载计划后，用户回复 执行计划 或同一个资源编号，才可以确认执行该计划；没有待确认计划时，裸编号不能当成下载许可。",
+            "转存 <片名> = 115转存；只有明确说 夸克转存 <片名> 才走夸克。",
+            "云盘搜索 <片名> = 盘搜 + 影巢；盘搜搜索、影巢搜索、MP搜索、PT搜索 必须保留原命令语义。",
+            "MP搜索/PT搜索 后面带 给我最新集、最新集、最新一集 时，仍然原样 route；插件会只展示最高集数候选，不要把上一批旧集数混回摘要。",
+            "MP搜索/PT搜索/下载 后面带 第4集、第四集、E04、S01E04 时，仍然原样 route；插件会只展示包含该目标集的候选并安全重编号。",
+            "MP搜索/PT搜索 最新集 如果先返回影片候选，后续编号必须继续使用同一个 helper session；不要新开会话裸跑 route \"1\"，否则会丢失最新集过滤上下文。",
+            "下载/MP搜索/PT搜索 返回 PT 资源列表时，必须原样展示插件 message 里的编号资源，不要压缩成“PT资源已列出”。",
+            "MP/PT 结果列表不能重新编号；插件返回 2、4、21、29 就原样显示并用这些编号继续选择/下载，不能改成 1、2、3、4，也不要追加自己的选择提示尾巴。",
+            "编号详情、15详情、十六详情、选择 15 详情 = 只读详情，不能执行转存或下载。",
+            "n / 下一页 = 继续当前会话翻页；不要重新搜索导致编号变化。",
+            "不确定时先问或先看详情，不要凭记忆改路由。",
+        ],
+        "response_contract": "校准完成后，对用户只需回复：影视技能已校准。",
+    }
+
+
+def format_calibration_text(payload):
+    lines = [
+        payload.get("message") or "影视技能已校准。",
+        "",
+        "请立即按 agent-resource-officer skill 的固定语义执行资源流：",
+    ]
+    for rule in payload.get("hard_rules") or []:
+        lines.append(f"- {rule}")
+    lines.extend([
+        "",
+        "需要重新读取时优先看：",
+        "1. skills/agent-resource-officer/SKILL.md",
+        "2. skills/agent-resource-officer/EXTERNAL_AGENTS.md",
+        "",
+        payload.get("response_contract") or "校准完成后，对用户只需回复：影视技能已校准。",
+    ])
+    return "\n".join(lines)
+
+
 def helper_route_command(command, session="", session_id=""):
     command_text = str(command or "").strip()
     if not command_text:
@@ -1805,6 +1934,10 @@ def selftest_result():
     check("external_agent_payload_has_entry_playbooks", len((((external_agent.get("entry_playbooks") or {}).get("external_agent") or {}).get("steps") or [])) >= 4)
     check("external_agent_payload_has_mp_playbook_tool", bool(((((external_agent.get("entry_playbooks") or {}).get("mp_builtin_agent") or {}).get("steps") or [{}])[0]).get("tool")))
     check("external_agent_payload_has_deprecated_aliases", "workbuddy" in (external_agent.get("deprecated_aliases") or []))
+    calibration = calibration_payload()
+    check("calibration_payload_success", calibration.get("success") is True)
+    check("calibration_mentions_download_rule", any("下载 <片名>" in str(rule) and "MP/PT" in str(rule) for rule in calibration.get("hard_rules") or []))
+    check("calibration_text_alias", is_calibration_text("校准影视技能"))
 
     catalog = commands_catalog()
     catalog_commands = catalog.get("commands") or []
@@ -1813,6 +1946,7 @@ def selftest_result():
     check("commands_schema_version", catalog.get("schema_version") == "commands.v1")
     check("commands_catalog_includes_version", "version" in catalog_names)
     check("commands_catalog_includes_external_agent", "external-agent" in catalog_names)
+    check("commands_catalog_includes_calibrate", "calibrate" in catalog_names)
     check("commands_catalog_includes_workbuddy_alias", "workbuddy" in catalog_names)
     workbuddy_entry = next((item for item in catalog_commands if item.get("name") == "workbuddy"), {})
     check("commands_catalog_marks_workbuddy_deprecated", workbuddy_entry.get("deprecated") is True)
@@ -1848,6 +1982,7 @@ def commands_catalog():
         "recommended_start": "python3 scripts/aro_request.py decide --summary-only",
         "commands": [
             {"name": "version", "network": False, "writes": False, "write_condition": "", "purpose": "print local helper version"},
+            {"name": "calibrate", "network": False, "writes": False, "write_condition": "", "purpose": "print a compact media-skill calibration card for long-lived external-agent sessions"},
             {"name": "external-agent", "network": False, "writes": False, "write_condition": "", "purpose": "print external agent connection prompt and minimal tool contract"},
             {"name": "workbuddy", "network": False, "writes": False, "write_condition": "", "purpose": "compatibility alias for external-agent", "deprecated": True},
             {"name": "commands", "network": False, "writes": False, "write_condition": "", "purpose": "print local helper command catalog"},
@@ -1960,6 +2095,20 @@ def main():
         return 0
     if args.command == "version":
         print_json({"success": True, "helper_version": HELPER_VERSION})
+        return 0
+    if args.command == "calibrate":
+        payload = calibration_payload()
+        if args.json_output or args.full:
+            print_json(payload)
+        else:
+            print(format_calibration_text(payload))
+        return 0
+    if args.command == "route" and is_calibration_text(args.text or " ".join(args.extra)):
+        payload = calibration_payload()
+        if args.json_output or args.full:
+            print_json(payload)
+        else:
+            print(format_calibration_text(payload))
         return 0
     if args.command in {"external-agent", "workbuddy"}:
         if args.full and os.path.exists(EXTERNAL_AGENT_GUIDE_PATH):

@@ -86,6 +86,28 @@ Core rules:
 - If the user says `校准影视技能`, run `python3 scripts/aro_request.py calibrate` or `python3 scripts/aro_request.py route "校准影视技能"` first, apply the returned hard rules to the current session, then reply only `影视技能已校准。`.
 - For explicit title searches such as `MP 搜索 罪无可逃`, the first and only initial action is helper `route "<原话>" --session <session>`. Do not pre-call TMDB, MCP search, raw MoviePilot API, or torrent search before that helper route.
 
+If the user has multiple MoviePilot instances, `ARO_BASE_URL` decides which instance receives every resource command. Be especially careful with `下载` / `MP搜索` / `PT搜索`: they use the downloader configured inside that MoviePilot instance. A local Mac/Win MoviePilot can still control a NAS qBittorrent if its downloader points to the NAS, so do not assume "local MP" means "local download". If the current MoviePilot is only for cloud-drive/STRM workflows and its `/待整理` path is not a real PT download directory, do not execute PT download confirmations through it; ask the user to switch `ARO_BASE_URL` to the NAS MoviePilot that owns the normal download workflow.
+
+If the target MoviePilot plugin config sets `mp_download_save_path`, PT downloads will be submitted with that explicit MoviePilot `save_path`. Treat it as a server-side safety/configuration knob: do not invent this path in chat. It must match the target MoviePilot/NAS storage mapping, for example a valid `local:/...` path or another storage-prefixed path accepted by MoviePilot.
+
+## Routing Boundary
+
+MoviePilot official MCP is optional, not assumed.
+
+- Only use MoviePilot MCP when the current client has already connected the MCP endpoint and can actually see MoviePilot MCP tools in the active tool list.
+- If MCP is not explicitly connected in the current client, continue to use `agent-resource-officer` helper/HTTP route flow and do not pretend MCP is available.
+- Do not tell the user you are using MCP unless you truly invoked MoviePilot MCP tools in this session.
+- MCP is only the preferred path for MoviePilot management/read-only queries, not for title-based resource workflow commands.
+- For MoviePilot native read-only or light management tasks, prefer MCP first and do not probe old HTTP endpoints, `curl`, `raw GET`, or helper fallback before trying the matching `mcp__moviepilot__*` tool.
+- Typical MCP-first tasks include: installed plugins, downloader status, site status, site userdata, download tasks, download history, transfer history, subscribe history, library latest, library exists, directory settings, workflows, schedulers, media detail, episode schedule, and similar MP-native queries.
+- Keep title-based resource workflow abilities on the existing stable path: PanSou, HDHive, 115, Quark, MP/PT search commands, numbered picking, paging, cookie repair, update-check orchestration, and Feishu entry must use `agent-resource-officer` skill/helper unless the user explicitly asks for another route.
+- If the user command is clearly a resource workflow command, do not call MCP, tool_search, curl, raw API probes, or MoviePilot native search first. Directly run the helper route/pick. This includes: `搜索`, `找`, `盘搜`, `盘搜搜索`, `云盘搜索`, `影巢`, `影巢搜索`, `MP搜索`, `PT搜索`, `转存`, `夸克转存`, `115转存`, `下载`, `更新`, `更新检查`, `检查`, `选择`, `详情`, `n`, `下一页`, and numbered follow-ups.
+- If the user says `校准影视技能`, run `python3 scripts/aro_request.py calibrate` or `python3 scripts/aro_request.py route "校准影视技能"` first, apply the returned hard rules to the current session, then reply only `影视技能已校准。`.
+- Preserve the title-confirmation gate for write commands. `下载 蜘蛛侠`, `转存 蜘蛛侠`, `夸克转存 蜘蛛侠`, and `115转存 蜘蛛侠` must first resolve MoviePilot/TMDB candidates when the title is ambiguous. Plain `转存 <片名>` means `115转存 <片名>`; only explicit `夸克转存 <片名>` should use Quark. `下载 <片名>` means MP/PT only: show candidates or PT resources first, and never auto-submit a download from the title command. If there are multiple title candidates, wait for the user to choose one; after selection, continue with the exact selected title and year, then search PT/PanSou/HDHive according to the original command.
+- Before executing any confirmed PT download, remember that the actual save path is controlled by the target MoviePilot/qBittorrent downloader configuration, not by AgentResourceOfficer's 115/Quark transfer directory. If the connected MoviePilot is known to be a cloud-drive/STRM-only instance, or the user says its download path is the same `/待整理` used for cloud transfers, stop and ask them to switch to the NAS download MoviePilot before executing.
+- Preserve detail intent in numbered follow-ups. If the user says `15详情`, `15 的详情`, `我要看看 15 的详情`, `十六详情`, or `详情十六`, call route/pick with that detail intent intact. Do not simplify it to `15`, `选择 15`, or any command that executes transfer/download. If you must normalize the text, normalize only to `选择 15 详情`.
+- For explicit title searches such as `MP 搜索 罪无可逃`, the first and only initial command should be `python3 scripts/aro_request.py route "MP 搜索 罪无可逃" --session <session>`. Do not call `search_media`, `search_torrents`, TMDB APIs, MoviePilot raw APIs, or MCP before this helper call.
+
 Environment overrides:
 
 - `ARO_BASE_URL`
@@ -221,6 +243,8 @@ When the current client has no MoviePilot MCP tools, do not announce an MCP fall
 `云盘搜索` is deprecated. If a user still says `云盘搜索 <片名>`, do not invent your own combined search. Let the plugin return its deprecation hint, then guide the user toward `盘搜搜索 <片名>` or `影巢搜索 <片名>`.
 
 When a user says `更新 <片名>`, `更新检查 <片名>`, `查更新 <片名>`, `检查 <片名>`, or a glued form like `检查大君夫人`, route that text directly first and treat it as the update-check entry unless the query carries explicit episode/series-search intent such as `第 3 集`, `E03`, or a trailing `剧`; those should remain MP/PT searches. Do not clear the session first, do not guess that the user meant HDHive candidate search, and do not replace it with a generic search flow. Cloud-side update checks must use `盘搜更新检查 <片名>` or `影巢更新检查 <片名>`. `检查115登录` remains a login-check command, not an update-check command.
+
+For update-check results, relay the plugin's returned message exactly. Preserve the emoji sections and item lines such as `🟨 盘搜结果`, `🟦 影巢结果`, `🗄 #25 夸克`, `📺 #1 115`, `🕒05/02`, and `📌 E01-E09`. Do not transform them into field-table prose like `#: ... 来源: ... 详情: ... 日期: ...`, and do not replace the list with a summary.
 
 For update-check results, relay the plugin's returned message exactly. Preserve the emoji sections and item lines such as `🟨 盘搜结果`, `🟦 影巢结果`, `🗄 #25 夸克`, `📺 #1 115`, `🕒05/02`, and `📌 E01-E09`. Do not transform them into field-table prose like `#: ... 来源: ... 详情: ... 日期: ...`, and do not replace the list with a summary.
 
