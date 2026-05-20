@@ -14,6 +14,7 @@ Runs the low-level repository release checks:
 - ensure clean worktree
 - shell/Python syntax
 - skill selftests
+- latest MoviePilot upstream compatibility
 - metadata/doc drift checks
 - package build and manifest verification
 
@@ -100,6 +101,7 @@ print(f"syntax_ok files={count}")
 PY
 bash scripts/check-skills.sh
 python3 scripts/check-agent-resource-officer-feishu.py
+python3 scripts/check-moviepilot-upstream-compat.py
 if [[ "${RUN_AGENT_RESOURCE_OFFICER_LIVE_SMOKE:-0}" == "1" ]]; then
   echo "[3.1] 执行 AgentResourceOfficer 本机 live smoke..."
   python3 scripts/smoke-agent-resource-officer.py --include-search

@@ -741,7 +741,7 @@ def external_agent_payload():
         "用户明确说 MP搜索、MP 搜索、PT搜索 或 PT 搜索时，第一步只能原样 route，不要先 search_media、search_torrents、TMDB、raw API 或 MCP，不要改写成盘搜、云盘或智能搜索。"
         "用户明确说智能搜索、资源决策或智能决策时，才使用跨来源智能决策。"
         "普通搜索和明确来源命令都先原样 route；不要自己轮询盘搜、影巢和 MP/PT。"
-        "用户明确发出新的 搜索/找/MP搜索/PT搜索/下载/转存/更新检查 加片名命令时，必须把原话 route 到当前会话；即使发现旧会话、候选列表或 route 报错，也禁止自动 pick/选择任何编号，尤其禁止用旧会话 pick 1 触发下载。"
+        "用户明确发出新的 搜索/找/MP搜索/PT搜索/下载/转存 加片名命令时，必须把原话 route 到当前会话；更新检查/查更新/检查 加片名是旧写法，也按搜索语义原话 route；即使发现旧会话、候选列表或 route 报错，也禁止自动 pick/选择任何编号，尤其禁止用旧会话 pick 1 触发下载。"
         "云盘和 PT 使用不同评分规则：云盘看质量/完整度/字幕/影巢积分，PT 看做种/促销/质量/字幕。"
         "编号选择走 pick；写入动作遵守 dry_run、plan_id、execute 的确认流程。"
         "route/pick/workflow/plan-execute/followup 返回 compact JSON 时，优先读取顶层 command_source、preferred_command、fallback_command、compact_commands 作为下一步。"
@@ -906,7 +906,7 @@ def external_agent_payload():
                 "compact_commands",
             ],
             "confirmation_rule": "写入动作默认确认制；只有明确标记可自动继续的只读步骤才自动续跑。",
-            "explicit_title_command_rule": "显式新搜索/下载/转存/更新检查命令不允许被旧会话恢复逻辑改写成 pick。只有用户本轮明确回复编号、选择 N、N详情、下载N、执行计划时，才允许进入 pick 或确认链路。",
+            "explicit_title_command_rule": "显式新搜索/下载/转存命令不允许被旧会话恢复逻辑改写成 pick；更新检查/查更新/检查 加片名是旧写法，也按搜索语义原话 route。只有用户本轮明确回复编号、选择 N、N详情、下载N、执行计划时，才允许进入 pick 或确认链路。",
         },
         "compat_aliases": ["workbuddy"],
         "deprecated_aliases": ["workbuddy"],
@@ -1591,12 +1591,12 @@ def calibration_payload(include_repo_update=False):
             "每次用户说 校准影视技能 / 影视技能校准，都先找到 MoviePilot-Plugins 仓库并执行 git fetch origin --prune，然后在工作区干净时执行 git pull --ff-only origin <当前分支>；若 helper 是 standalone 安装副本，拉取后还要把仓库里的 agent-resource-officer skill 同步回当前 skill 目录；若有本地未提交改动或无法快进，只报告原因并继续校准，不要强行覆盖。",
             "git pull 只是更新步骤，不是校准本体。即使跳过拉取，也必须立即重新读取本地 skills/agent-resource-officer/SKILL.md 和 skills/agent-resource-officer/EXTERNAL_AGENTS.md，并用它们覆盖当前会话规则。",
             "资源流必须走 agent-resource-officer skill/helper，不要自己改写成 MCP、curl、TMDB 或底层网盘 API。",
-            "用户明确发出新的 搜索/找/MP搜索/PT搜索/下载/转存/更新检查 加片名命令时，只能 route 原话；即使存在旧会话、候选列表、活跃 session 或 route 报错，也不能自动 pick/选择任何编号，尤其不能 pick 1 触发下载。",
+            "用户明确发出新的 搜索/找/MP搜索/PT搜索/下载/转存 加片名命令时，只能 route 原话；更新检查/查更新/检查 加片名是旧写法，也按搜索语义原话 route；即使存在旧会话、候选列表、活跃 session 或 route 报错，也不能自动 pick/选择任何编号，尤其不能 pick 1 触发下载。",
             "下载 <片名> = MoviePilot 原生 MP/PT；片名不明确先选影片，片名明确后直接生成最多 3 个最佳 PT 候选的待确认下载方案，不展示完整 PT 列表、不走云盘、不自动提交真实下载。",
             "下载候选影片列表出来后，必须保持同一个 helper session，把用户回复的候选编号原样 route 回去；不要改写成 下载 <候选标题 年份>。",
             "下载链路如果选定影片后没有 PT 资源，只能报告无 PT 可下载；不能自动补查盘搜、影巢、夸克或 115。",
             "只有在当前会话刚生成待确认下载计划后，用户回复 执行计划 或同一个资源编号，才可以确认执行该计划；没有待确认计划时，裸编号不能当成下载许可。",
-            "转存 <片名> = 115转存；只有明确说 夸克转存 <片名> 才走夸克。",
+            "标题级转存入口已取消；搜索结果出来后按编号继续处理。",
             "云盘搜索 <片名> = 盘搜 + 影巢；盘搜搜索、影巢搜索、MP搜索、PT搜索 必须保留原命令语义。",
             "MP搜索/PT搜索 后面带 给我最新集、最新集、最新一集 时，仍然原样 route；插件会只展示最高集数候选，不要把上一批旧集数混回摘要。",
             "MP搜索/PT搜索/下载 后面带 第4集、第四集、E04、S01E04 时，仍然原样 route；插件会只展示包含该目标集的候选并安全重编号。",

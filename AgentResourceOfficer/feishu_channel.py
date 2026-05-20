@@ -1449,18 +1449,33 @@ class FeishuChannel:
             return "订阅失败：当前环境缺少 MoviePilot 订阅依赖。"
         meta = MetaInfo(keyword)
         try:
+            save_path = ""
+            if self.plugin is not None:
+                save_path = str(getattr(self.plugin, "_mp_download_save_path", "") or "").strip()
+            subscribe_kwargs = {
+                "title": keyword,
+                "year": meta.year,
+                "mtype": meta.type,
+                "season": meta.begin_season,
+                "username": "agentresourceofficer-feishu",
+                "exist_ok": True,
+                "message": False,
+            }
+            if save_path:
+                subscribe_kwargs["save_path"] = save_path
             sid, message = SubscribeChain().add(
-                title=keyword,
-                year=meta.year,
-                mtype=meta.type,
-                season=meta.begin_season,
-                username="agentresourceofficer-feishu",
-                exist_ok=True,
-                message=False,
+                **subscribe_kwargs,
             )
             if not sid:
                 return f"订阅失败：{keyword}\n原因：{message}"
+            if save_path and SubscribeOper is not None:
+                try:
+                    SubscribeOper().update(sid, {"save_path": save_path})
+                except Exception as exc:
+                    logger.warning(f"[AgentResourceOfficer][Feishu] 同步订阅保存路径失败：sid={sid} {exc}")
             lines = [f"已创建订阅：{keyword}", f"订阅ID：{sid}", f"结果：{message}"]
+            if save_path:
+                lines.append(f"保存路径：{save_path}")
             if immediate_search and Scheduler is not None:
                 Scheduler().start(job_id="subscribe_search", **{"sid": sid, "state": None, "manual": True})
                 lines.append("已触发一次订阅搜索。")
@@ -1775,7 +1790,7 @@ class FeishuChannel:
             "5. 转存 片名（默认 115）\n"
             "6. 夸克转存 片名\n"
             "7. 下载 片名\n"
-            "8. 更新检查 片名\n"
+            "8. 订阅 片名\n"
             "9. 选择 序号 / 详情 序号 / n\n"
             "10. 115登录 / 115状态 / 115任务\n"
             "11. 影巢签到 / 影巢签到日志"

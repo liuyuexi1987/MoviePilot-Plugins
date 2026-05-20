@@ -62,6 +62,12 @@ python3 scripts/check-doc-current-state.py
 
 用来校验当前状态文档中的插件版本、helper 版本和 release URL 没有落后于代码。
 
+```bash
+python3 scripts/check-moviepilot-upstream-compat.py
+```
+
+用来确认当前仓库依赖的关键 MoviePilot 接口仍然兼容最新上游 release。
+
 如果本机已经跑着可访问的 MoviePilot，并且 `~/.config/agent-resource-officer/config` 已配置 `ARO_BASE_URL` / `ARO_API_KEY`，建议追加一次真实链路检查：
 
 ```bash

@@ -1,12 +1,14 @@
 # agent-resource-officer
 
-公开版 AgentResourceOfficer Skill 模板，用来让外部智能体通过 MoviePilot 插件接口控制盘搜、影巢、115、夸克、MP/PT 搜索、下载、更新检查、编号选择和 Cookie 修复等资源工作流。插件是服务端执行层；Skill/helper 是客户端调度层。
+公开版 AgentResourceOfficer Skill 模板，用来让外部智能体通过 MoviePilot 插件接口控制盘搜、影巢、115、夸克、MP/PT 搜索、下载、编号选择和 Cookie 修复等资源工作流。插件是服务端执行层；Skill/helper 是客户端调度层。
 
 当前 helper 版本：`0.1.51`
 
 ## 当前状态
 
-- 当前插件版本：`Agent影视助手 0.2.71`
+- 当前插件版本：`Agent影视助手 0.2.73`
+
+- 当前已验证上游 MoviePilot：`v2.11.4`
 - 当前最小循环：`startup -> decide --summary-only -> route --summary-only -> followup --summary-only`
 - 当前优先读取字段：`recommended_agent_behavior`、`auto_run_command`、`confirm_command`、`display_command`
 - 当前 AI 失败样本只读诊断入口：
@@ -29,16 +31,11 @@
   - `影巢搜索 <片名>` 固定先查影巢，没结果时按开关补查盘搜
   - `云盘搜索 <片名>` 已废弃，只会返回改用 `盘搜搜索` / `影巢搜索` 的提示
   - `搜索 第 3 集`、`搜索 E03` 这类带集数线索的写法，会直接按 MP/PT 搜索，不再回退到云盘
-  - `盘搜更新检查 <片名>` / `影巢更新检查 <片名>` 是云盘侧更新检查；`更新检查 xx 剧` / `检查 xx 剧` 按 MP/PT 搜索处理
+  - `更新检查 <片名>` / `查更新 <片名>` / `检查 <片名>` 已并回搜索语义；现在直接用 `搜索 / 盘搜搜索 / 影巢搜索 / MP搜索 / PT搜索` 即可
   - `MP搜索 <片名>` / `PT搜索 <片名>` 明确走 MoviePilot 原生 PT 搜索；片名有歧义时先返回 MP/TMDB 候选，用户选编号后再搜索 PT
 - 标题级 `转存 <片名>` / `115转存 <片名>` / `夸克转存 <片名>` 已取消，只保留先搜索、再按编号继续处理的主线
 - `下载 <片名>` 走 MP/PT 直接下载
 - `115登录` 不再强依赖 `P115StrmHelper`；有它更适合做 115 整理、STRM 和旧登录态复用，没有它也可以直接扫码登录
-- 当前更新口径：
-  - `更新 <片名>` / `更新检查 <片名>` / `检查 <片名>` 先走更新检查
-  - 直接展示TMDB 参考进度、盘搜最新集资源、影巢最新集资源
-  - 不要先清空会话，不要先改走影巢候选
-  - 资源列表必须保留原始编号，方便后续直接回编号
 - 当前破坏性目录命令：
   - `清空夸克默认转存目录`
   - `清空夸克默认目录`
@@ -294,7 +291,7 @@ AI 失败样本链现在分两步：
 
 真正执行仍然要回复 `执行计划 <plan_id>`，不会直接裸重放。
 
-搜索类响应可能带有 `score_summary`，包含 `best` 和 `top_recommendations`。外部智能体应优先读取这个结构化摘要，而不是解析长文本；存在 `hard_risk_reasons` 时不要自动执行，`risk_reasons` 只作为确认前需要解释的提醒。
+搜索类响应可能带有 `score_summary`，包含 `best` 和 `top_recommendations`。外部智能体应优先读取这个结构化摘要，而不是解析长文本；存在 `hard_risk_reasons` 时不要自动执行。对 **PT** 结果：`risk_reasons` 仅为提醒，不触发二次确认；`score_summary.decision` 中 `warning_only=true` 表示"有提醒但不拦截"，`pt_direct_download=true` 表示"可直接回编号下载"。对**云盘/计划链**：`risk_reasons` 仍可作为确认前解释。
 
 `score_summary.decision` 是优先读取的下一步建议层，里面会给出 `label`、`decision_hint`、`preferred_command`、`fallback_command`、`compact_commands` 和 `recommended_commands`。外部智能体应优先复用前两档短命令，不要自己再拼另一套确认话术。
 
@@ -455,7 +452,7 @@ python3 scripts/aro_request.py session-clear --session default
 python3 scripts/aro_request.py plans-clear --session default
 ```
 
-如果你给每个用户或群聊分配了固定 session，例如 `agent:wechat-room-1`，把 `default` 换成实际 session。不要把这一步放到普通搜索或更新检查前自动执行，否则会破坏正常编号续接。
+如果你给每个用户或群聊分配了固定 session，例如 `agent:wechat-room-1`，把 `default` 换成实际 session。不要把这一步放到普通搜索前自动执行，否则会破坏正常编号续接。
 
 ## 偏好与评分
 
@@ -520,11 +517,7 @@ python3 scripts/aro_request.py route --text "执行 plan-xxxx" --session agent:d
 
 `MP搜索` / `PT搜索` 返回后，也不要自行改写成简表。尤其不要重写英文 release title，插件会在点号标题里加入隐藏断点，并用 `🌱`、`🎁`、`💾`、`⭐` 等 emoji 改善手机微信阅读；这些标记都应原样保留。
 
-`更新检查` / `检查` 返回后，同样不要改写成 `#: 来源 / 详情 / 日期` 这种字段表。插件已经会输出 `🟨 盘搜结果`、`🟦 影巢结果`、`🗄 #编号 夸克`、`📺 #编号 115`、`🕒日期`、`📌 集数`，这些行应原样保留，最多在列表后追加一段很短的自然语言建议。
-
 `MP搜索` / `PT搜索` 返回后，也不要自行改写成简表。尤其不要重写英文 release title，插件会在点号标题里加入隐藏断点，并用 `🌱`、`🎁`、`💾`、`⭐` 等 emoji 改善手机微信阅读；这些标记都应原样保留。
-
-`更新检查` / `检查` 返回后，同样不要改写成 `#: 来源 / 详情 / 日期` 这种字段表。插件已经会输出 `🟨 盘搜结果`、`🟦 影巢结果`、`🗄 #编号 夸克`、`📺 #编号 115`、`🕒日期`、`📌 集数`，这些行应原样保留，最多在列表后追加一段很短的自然语言建议。
 
 夸克转存失败时，不要自己补一段“可能是默认转存目录不存在或有问题”“换个 path=/ 试试”这类猜测。只有当插件明确指出路径问题时，才建议改路径；如果插件只返回 `夸克转存失败：无法转存到 /飞书`，更稳妥的表述应是“原因未明，先不要自行推断路径问题”。
 

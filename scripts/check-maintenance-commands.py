@@ -35,6 +35,7 @@ HELP_SHELL_SCRIPTS = [
 
 HELP_PYTHON_SCRIPTS = [
     "scripts/check-doc-current-state.py",
+    "scripts/check-moviepilot-upstream-compat.py",
     "scripts/audit-remote-branches.py",
     "scripts/archive-local-branches.py",
 ]

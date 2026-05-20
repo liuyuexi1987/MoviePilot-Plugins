@@ -50,7 +50,7 @@ AI识别增强
 普通用户只需要优先认这两个包：
 
 ```text
-AgentResourceOfficer-0.2.71.zip
+AgentResourceOfficer-0.2.73.zip
 AIRecognizerEnhancer-0.1.12.zip
 ```
 
@@ -103,7 +103,7 @@ QuarkShareSaver-0.1.0.zip
 影巢搜索 片名
 搜索 片名
 下载 片名
-更新检查 片名
+订阅 片名
 115登录
 影巢签到
 ```
@@ -143,8 +143,8 @@ MCP 地址：http://你的MP地址:3000/api/v1/mcp
 建议分工：
 
 - 查插件列表、下载器状态、站点状态、历史记录、工作流这类 MoviePilot 管理信息，可以优先用 MCP。
-- 盘搜、影巢、115/夸克转存、编号选择、翻页、Cookie 修复，继续优先用 `agent-resource-officer skill / helper`。
-- `MP搜索 / PT搜索 / 下载 / 更新检查` 这类片名资源流，也继续优先交给 `agent-resource-officer`，避免智能体绕过插件规则。
+- 盘搜、影巢、编号选择后的 115 / 夸克处理、编号选择、翻页、Cookie 修复，继续优先用 `agent-resource-officer skill / helper`。
+- `MP搜索 / PT搜索 / 下载` 这类片名资源流，也继续优先交给 `agent-resource-officer`，避免智能体绕过插件规则。
 
 ---
 
@@ -176,11 +176,13 @@ MCP 地址：http://你的MP地址:3000/api/v1/mcp
 
 如果你只是普通用户，到这里就够了。
 
-资源主线：`Agent影视助手 / AgentResourceOfficer 0.2.71`
+资源主线：`Agent影视助手 / AgentResourceOfficer 0.2.73`
+
+当前已验证上游 MoviePilot：`v2.11.4`
 
 当前 Skill helper：`agent-resource-officer 0.1.51`
 
-当前 Release：https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.2.71
+当前 Release：https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.2.73
 
 维护命令路径：`docs/MAINTENANCE_COMMANDS.md`
 

@@ -4,9 +4,10 @@
 
 ## 当前状态
 
-- 当前插件版本：`AgentResourceOfficer 0.2.71`
+- 当前插件版本：`AgentResourceOfficer 0.2.73`
 - 当前 Skill helper 版本：`0.1.51`
-- 当前 Release：<https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.2.71>
+- 当前 Release：<https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.2.73>
+- 当前已验证上游 MoviePilot：`v2.11.4`
 
 ## 最常用入口
 
@@ -67,6 +68,12 @@ bash scripts/verify-release-preflight-artifact.sh
 
 ```bash
 python3 scripts/check-doc-current-state.py
+```
+
+- 检查当前仓库依赖的关键 MoviePilot 接口是否仍兼容最新上游 release：
+
+```bash
+python3 scripts/check-moviepilot-upstream-compat.py
 ```
 
 - 审计远端和本地历史分支：
@@ -189,5 +196,6 @@ bash scripts/generate-release-notes.sh <tag>
 - `print-release-summary.sh`
 - `print-skill-release-summary.sh`
 - `check-doc-current-state.py`
+- `check-moviepilot-upstream-compat.py`
 - `audit-remote-branches.py`
 - `archive-local-branches.py`

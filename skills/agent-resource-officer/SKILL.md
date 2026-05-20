@@ -1,11 +1,11 @@
 ---
 name: agent-resource-officer
-description: Control AgentResourceOfficer, the MoviePilot resource workflow hub, from an external agent. Use when an agent should route title-based resource commands including PanSou, HDHive, 115, Quark, MP/PT search, downloads, update checks, numbered choices, paging, cookie repair, startup/recovery state, request templates, or saved plans through AgentResourceOfficer instead of calling MoviePilot MCP search tools, TMDB, HDHive, 115, Quark, or PanSou APIs directly.
+description: Control AgentResourceOfficer, the MoviePilot resource workflow hub, from an external agent. Use when an agent should route title-based resource commands including PanSou, HDHive, 115, Quark, MP/PT search, downloads, numbered choices, paging, cookie repair, startup/recovery state, request templates, or saved plans through AgentResourceOfficer instead of calling MoviePilot MCP search tools, TMDB, HDHive, 115, Quark, or PanSou APIs directly.
 ---
 
 # AgentResourceOfficer Skill
 
-Use this skill when the user wants an external agent to operate MoviePilot title-based resource workflows through `AgentResourceOfficer`, including PanSou, HDHive, 115, Quark, MP/PT search, download, update-check, numbered picking, paging, and repair flows.
+Use this skill when the user wants an external agent to operate MoviePilot title-based resource workflows through `AgentResourceOfficer`, including PanSou, HDHive, 115, Quark, MP/PT search, download, numbered picking, paging, and repair flows.
 
 The plugin is the capability layer. The agent should orchestrate, display choices, ask for confirmation when required, and call the stable assistant endpoints.
 
@@ -72,14 +72,14 @@ Resource commands that must go straight to `route` / `pick`:
 - `影巢` / `影巢搜索`
 - `MP搜索` / `PT搜索`
 - `下载`
-- `更新` / `更新检查` / `检查`
-- `盘搜更新检查` / `影巢更新检查`
 - `流媒体推荐` (streaming recommendations, e.g. `流媒体推荐 本月热门电影`)
 - `选择` / `详情` / `n` / `下一页`
 - numbered follow-ups
 
+`更新检查 <片名>` / `查更新 <片名>` / `检查 <片名>` 已并回搜索语义，路由时当作搜索处理。
+
 Episode-aware plain searches such as `搜索 第 3 集`, `搜索 E03`, or `搜索 更新至 第 10 集` should also be treated as explicit MP/PT searches and must not fall back to cloud search.
-Cloud update checks must carry a source prefix: use `盘搜更新检查 <片名>` or `影巢更新检查 <片名>`. Bare `更新检查 xx 剧` / `检查 xx 剧` should be treated as MP/PT search intent.
+`更新检查 <片名>` / `查更新 <片名>` / `检查 <片名>` 已并回搜索语义，直接路由为搜索即可。`检查115登录` 仍然是登录检查命令。
 
 Core rules:
 
@@ -243,11 +243,7 @@ When the current client has no MoviePilot MCP tools, do not announce an MCP fall
 
 `云盘搜索` is deprecated. If a user still says `云盘搜索 <片名>`, do not invent your own combined search. Let the plugin return its deprecation hint, then guide the user toward `盘搜搜索 <片名>` or `影巢搜索 <片名>`.
 
-When a user says `更新 <片名>`, `更新检查 <片名>`, `查更新 <片名>`, `检查 <片名>`, or a glued form like `检查大君夫人`, route that text directly first and treat it as the update-check entry unless the query carries explicit episode/series-search intent such as `第 3 集`, `E03`, or a trailing `剧`; those should remain MP/PT searches. Do not clear the session first, do not guess that the user meant HDHive candidate search, and do not replace it with a generic search flow. Cloud-side update checks must use `盘搜更新检查 <片名>` or `影巢更新检查 <片名>`. `检查115登录` remains a login-check command, not an update-check command.
-
-For update-check results, relay the plugin's returned message exactly. Preserve the emoji sections and item lines such as `🟨 盘搜结果`, `🟦 影巢结果`, `🗄 #25 夸克`, `📺 #1 115`, `🕒05/02`, and `📌 E01-E09`. Do not transform them into field-table prose like `#: ... 来源: ... 详情: ... 日期: ...`, and do not replace the list with a summary.
-
-For update-check results, relay the plugin's returned message exactly. Preserve the emoji sections and item lines such as `🟨 盘搜结果`, `🟦 影巢结果`, `🗄 #25 夸克`, `📺 #1 115`, `🕒05/02`, and `📌 E01-E09`. Do not transform them into field-table prose like `#: ... 来源: ... 详情: ... 日期: ...`, and do not replace the list with a summary.
+When a user says `更新 <片名>`, `更新检查 <片名>`, `查更新 <片名>`, `检查 <片名>`, or a glued form like `检查大君夫人`, route that text directly first. The plugin will redirect these to search semantics. Do not clear the session first, do not guess that the user meant HDHive candidate search, and do not replace it with a generic search flow. `检查115登录` remains a login-check command, not a search command.
 
 When a user says `刷新影巢Cookie`, do not route that phrase into AgentResourceOfficer. Treat it as a host-side repair action and run:
 
@@ -285,7 +281,7 @@ If there is no safe transfer command to retry, run `python3 scripts/aro_request.
 
 Only use the Quark automatic repair flow when the failure clearly points to login/cookie problems, for example `require login [guest]`, `夸克登录态已过期`, or `当前夸克登录态不足`. Do not trigger it for share-link restrictions, deleted links, or ordinary 403/41031 share bans.
 
-For ordinary search, cloud search, HDHive resource lists, and update-check lists, preserve the plugin's original numbering exactly. Do not reformat a numbered resource list into unnumbered prose, do not collapse numbered items into a separate summary, and do not move the actionable numbers only into a later recommendation paragraph. Smart recommendations are welcome after the original list, and can be as detailed as useful, as long as they reference the original item numbers and do not replace the list.
+For ordinary search, cloud search, and HDHive resource lists, preserve the plugin's original numbering exactly. Do not reformat a numbered resource list into unnumbered prose, do not collapse numbered items into a separate summary, and do not move the actionable numbers only into a later recommendation paragraph. Smart recommendations are welcome after the original list, and can be as detailed as useful, as long as they reference the original item numbers and do not replace the list.
 
 The helper's default `route` and `pick` commands print a chat-friendly plain text `message`. Relay that output directly to the user. If you need to parse structured fields programmatically, add `--json-output`; do not parse the plain display text and then reconstruct your own resource list.
 
@@ -321,12 +317,12 @@ Use `readiness` after configuration to run config check, local selftest, and liv
 python3 scripts/aro_request.py readiness
 ```
 
-Update-check examples:
+Search examples:
 
 ```bash
-python3 scripts/aro_request.py route "更新 大君夫人"
-python3 scripts/aro_request.py route "更新检查 大君夫人"
-python3 scripts/aro_request.py route "检查 大君夫人"
+python3 scripts/aro_request.py route "搜索 大君夫人"
+python3 scripts/aro_request.py route "盘搜搜索 大君夫人"
+python3 scripts/aro_request.py route "影巢搜索 大君夫人"
 ```
 
 Quark cleanup examples:
@@ -544,7 +540,7 @@ Notes:
 - Use `followup` after `plan-execute` when you want the plugin to choose the correct read-only next step automatically.
 - Use `session-clear` or `sessions-clear` to clear abandoned assistant state after user confirmation.
 - Use `plans-clear --plan-id ...` for exact saved-plan cleanup. Treat bulk cleanup flags as write-side-effect operations requiring confirmation.
-- For long-lived WeChat, WorkBuddy, Claw, Hermes, or OpenClaw threads, stale compressed context can cause bad rewrites such as changing cloud detail into direct selection, or changing PT numbered downloads into detail review. When that happens, clear the current ARO session and saved plans, then reload this skill. Do not run session cleanup before ordinary search or update-check commands, because normal numbered follow-up depends on session continuity.
+- For long-lived WeChat, WorkBuddy, Claw, Hermes, or OpenClaw threads, stale compressed context can cause bad rewrites such as changing cloud detail into direct selection, or changing PT numbered downloads into detail review. When that happens, clear the current ARO session and saved plans, then reload this skill. Do not run session cleanup before ordinary search commands, because normal numbered follow-up depends on session continuity.
 
 Long-thread cleanup example:
 
@@ -565,7 +561,7 @@ python3 scripts/aro_request.py scoring-policy
 
 Most assistant responses also include compact `preference_status`. If `preference_status.needs_onboarding=true`, pause automation, ask the user for preferences, then save them before choosing downloads, unlocks, or transfers.
 
-Search responses may include compact `score_summary`. Prefer `score_summary.best` and `score_summary.top_recommendations` over parsing the natural-language message. Treat `hard_risk_reasons` as blocking automation; treat `risk_reasons` as warnings to explain before asking for confirmation. If `score_level=confirm`, explain the reasons and ask the user before executing.
+Search responses may include compact `score_summary`. Prefer `score_summary.best` and `score_summary.top_recommendations` over parsing the natural-language message. Treat `hard_risk_reasons` as blocking automation. For **PT** results, `risk_reasons` are warning-only and do NOT require a confirmation step — if the top-level summary returns `preferred_requires_confirmation=false`, `command_policy=auto_continue`, or `pt_direct_download=true`, do not add "确认下载吗？"; `score_summary.decision` also carries `warning_only` and `pt_direct_download` fields for mechanical checks. For **cloud / plan** chains, `risk_reasons` remain as pre-confirmation explanations.
 
 If `needs_onboarding=true`, ask the user for a compact preference profile and save it:
 

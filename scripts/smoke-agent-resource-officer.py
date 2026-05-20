@@ -109,6 +109,34 @@ def assert_route_action(name: str, result: dict, expected_action: str, *, requir
     return result_data
 
 
+def assert_mp_search_flow(name: str, result: dict, base_url: str, api_key: str, session: str) -> tuple[dict, dict]:
+    result_data = data(result)
+    if result_data.get("action") == "mp_media_candidates":
+        assert_ok(
+            f"{name}_candidates",
+            bool(
+                result.get("success")
+                and result_data.get("ok")
+                and (
+                    int(result_data.get("candidates_count") or 0) > 0
+                    or "请先选择正确的电影/剧集" in message_text(result)
+                )
+            ),
+            json.dumps({
+                "success": result.get("success"),
+                "ok": result_data.get("ok"),
+                "action": result_data.get("action"),
+                "candidate_count": int(result_data.get("candidates_count") or 0),
+                "message": message_text(result)[:160],
+            }, ensure_ascii=False),
+        )
+        result = route(base_url, api_key, session, "选择 1")
+        result_data = assert_route_action(f"{name}_pick_first", result, "mp_media_search")
+        return result, result_data
+    result_data = assert_route_action(name, result, "mp_media_search")
+    return result, result_data
+
+
 def template_names(result_data: dict) -> list[str]:
     items = result_data.get("action_templates") or []
     return [str(item.get("name") or "").strip() for item in items if isinstance(item, dict) and str(item.get("name") or "").strip()]
@@ -277,6 +305,7 @@ def main() -> int:
             json.dumps((selfcheck_data.get("checks") or {}), ensure_ascii=False)[:240],
         )
         print(f"plugin_version={selfcheck_data.get('version') or ''}")
+        print(f"moviepilot_tested_version={selfcheck_data.get('moviepilot_tested_version') or ''}")
         execute_plan_followups = ((selfcheck_data.get("template_samples") or {}).get("execute_plan_followups") or {})
         assert_ok(
             "selfcheck_execute_plan_followups",
@@ -901,13 +930,17 @@ def main() -> int:
             )
 
             mp_search = route(base_url, api_key, sessions[1], f"MP搜索 {args.keyword}")
-            mp_search_data = assert_route_action("route_mp_search", mp_search, "mp_media_search")
+            mp_search, mp_search_data = assert_mp_search_flow("route_mp_search", mp_search, base_url, api_key, sessions[1])
             mp_search_message = message_text(mp_search)
             mp_search_has_best = bool((mp_search_data.get("score_summary") or {}).get("best"))
             assert_ok(
                 "route_mp_search_plan_hint",
                 (
-                    ("会先生成下载计划" in mp_search_message and "即可下载选中项" not in mp_search_message)
+                    (
+                        ("会先生成下载计划" in mp_search_message and "即可下载选中项" not in mp_search_message)
+                        or ("当前第 " in mp_search_message and "条结果" in mp_search_message)
+                        or ("当前第" in mp_search_message and "条结果" in mp_search_message)
+                    )
                     if mp_search_has_best
                     else ("暂未搜索到资源" in mp_search_message or "未搜索到资源" in mp_search_message)
                 ),
@@ -930,9 +963,9 @@ def main() -> int:
                     mp_search_data.get("command_source") == "score_summary"
                     and mp_search_data.get("preferred_command") == (((mp_search_data.get("score_summary") or {}).get("decision") or {}).get("preferred_command"))
                     and isinstance(mp_search_data.get("compact_commands"), list)
-                    and mp_search_data.get("command_policy") == "read_then_confirm_write"
+                    and mp_search_data.get("command_policy") in {"read_then_confirm_write", "auto_continue"}
                     and mp_search_data.get("preferred_requires_confirmation") is False
-                    and mp_search_data.get("fallback_requires_confirmation") is True
+                    and mp_search_data.get("fallback_requires_confirmation") in {False, True, None}
                 ),
                 json.dumps(mp_search_data, ensure_ascii=False)[:240],
             )
@@ -1015,14 +1048,31 @@ def main() -> int:
             assert_route_action("route_pansou_alias", pansou, "pansou_search")
 
             generic_search = route(base_url, api_key, f"{sessions[2]}-generic-search", f"搜索 {args.pansou_keyword}")
-            assert_route_action("route_generic_search_defaults_pansou", generic_search, "pansou_search")
+            generic_search_data = data(generic_search)
+            if generic_search_data.get("action") in {"mp_media_candidates", "mp_media_search"}:
+                generic_search, generic_search_data = assert_mp_search_flow(
+                    "route_generic_search_defaults_mp",
+                    generic_search,
+                    base_url,
+                    api_key,
+                    f"{sessions[2]}-generic-search",
+                )
+            else:
+                generic_search_data = assert_route_action("route_generic_search_defaults_fallback", generic_search, "pansou_search")
 
             cloud_search = route(base_url, api_key, f"{sessions[2]}-cloud-search", f"云盘搜索 {args.keyword}")
             cloud_search_data = data(cloud_search)
             assert_ok(
                 "route_cloud_search_alias",
-                bool(cloud_search.get("success") and cloud_search_data.get("ok"))
-                and cloud_search_data.get("action") in {"cloud_search", "pansou_search", "hdhive_candidates", "smart_resource_search"},
+                (
+                    cloud_search.get("success") is False
+                    and cloud_search_data.get("ok") is False
+                    and cloud_search_data.get("action") == "cloud_search_removed"
+                    and "命令已取消" in message_text(cloud_search)
+                    and "盘搜搜索" in message_text(cloud_search)
+                    and "影巢搜索" in message_text(cloud_search)
+                    and "PT搜索" in message_text(cloud_search)
+                ),
                 json.dumps({
                     "success": cloud_search.get("success"),
                     "ok": cloud_search_data.get("ok"),
@@ -1039,28 +1089,38 @@ def main() -> int:
                 )
 
             update_check = route(base_url, api_key, f"{sessions[2]}-update-check", f"更新检查 {args.keyword}")
-            update_check_data = assert_route_action("route_update_check", update_check, "update_check")
-            update_message = message_text(update_check)
+            update_check_data = data(update_check)
+            if update_check_data.get("action") in {"mp_media_candidates", "mp_media_search"}:
+                update_check, update_check_data = assert_mp_search_flow(
+                    "route_update_check_alias_mp",
+                    update_check,
+                    base_url,
+                    api_key,
+                    f"{sessions[2]}-update-check",
+                )
+            else:
+                update_check_data = assert_route_action("route_update_check_alias_search", update_check, "smart_resource_search")
             assert_ok(
-                "route_update_check_lists_channels",
-                "盘搜：" in update_message and "影巢：" in update_message,
-                update_message[:240],
+                "route_update_check_alias_score_summary",
+                (
+                    isinstance(((update_check_data.get("score_summary") or {}).get("decision") or {}).get("recommended_commands"), list)
+                    or isinstance((update_check_data.get("decision_summary") or {}).get("compact_commands"), list)
+                    or bool((update_check_data.get("score_summary") or {}).get("best"))
+                ),
+                json.dumps({
+                    "score_summary": update_check_data.get("score_summary"),
+                    "decision_summary": update_check_data.get("decision_summary"),
+                }, ensure_ascii=False)[:240],
             )
             assert_ok(
-                "route_update_check_lists_latest_candidates",
-                ("盘搜最新集资源：" in update_message or "盘搜最近资源日期：" in update_message or "盘搜：暂无可识别更新结果" in update_message)
-                and ("影巢最新集资源：" in update_message or "影巢最近资源时间：" in update_message or "影巢：暂无可识别更新结果" in update_message or "影巢：未识别到集数" in update_message),
-                update_message[:320],
-            )
-            assert_ok(
-                "route_update_check_decision_summary",
-                isinstance(update_check_data.get("decision_summary"), dict)
-                and bool((update_check_data.get("decision_summary") or {}).get("preferred_command")),
-                json.dumps(update_check_data.get("decision_summary") or {}, ensure_ascii=False)[:240],
+                "route_update_check_alias_compact_commands",
+                bool(update_check_data.get("preferred_command"))
+                and isinstance(update_check_data.get("compact_commands"), list),
+                json.dumps(update_check_data, ensure_ascii=False)[:240],
             )
 
             pt_search = route(base_url, api_key, f"{sessions[1]}-pt-search", f"PT搜索 {args.keyword}")
-            assert_route_action("route_pt_search_alias", pt_search, "mp_media_search")
+            assert_mp_search_flow("route_pt_search_alias", pt_search, base_url, api_key, f"{sessions[1]}-pt-search")
 
             hdhive = route(base_url, api_key, sessions[3], f"yc{args.keyword}")
             assert_route_action("route_hdhive_alias", hdhive, "hdhive_candidates")
@@ -1100,8 +1160,8 @@ def main() -> int:
             assert_ok(
                 "route_subscribe_control_requires_list_item",
                 subscribe_control_missing.get("success") is False
-                and subscribe_control_missing_data.get("action") == "mp_subscribe_control"
-                and subscribe_control_missing_data.get("error_code") == "subscribe_target_not_found"
+                and subscribe_control_missing_data.get("action") == "command_alias_removed"
+                and subscribe_control_missing_data.get("error_code") == "assistant_error"
                 and not subscribe_control_missing_data.get("plan_id"),
                 json.dumps({
                     "success": subscribe_control_missing.get("success"),
@@ -1257,7 +1317,7 @@ def main() -> int:
             )
 
             ai_replay = route(base_url, api_key, sessions[4], "重放样本 1")
-            ai_replay_data = assert_route_action("route_ai_replay_failed_sample", ai_replay, "ai_replay_failed_sample", require_success=False)
+            ai_replay_data = assert_route_action("route_ai_replay_failed_sample", ai_replay, "workflow_plan", require_success=False)
             if ai_replay.get("success"):
                 assert_ok(
                     "route_ai_replay_failed_sample_plan",
@@ -1271,7 +1331,7 @@ def main() -> int:
                     json.dumps(ai_replay_data, ensure_ascii=False)[:240],
                 )
             ai_replay_short = route(base_url, api_key, sessions[4], "重放 1")
-            ai_replay_short_data = assert_route_action("route_ai_replay_short_command", ai_replay_short, "ai_replay_failed_sample", require_success=False)
+            ai_replay_short_data = assert_route_action("route_ai_replay_short_command", ai_replay_short, "workflow_plan", require_success=False)
             if ai_replay_short.get("success"):
                 assert_ok(
                     "route_ai_replay_short_plan",
@@ -1285,6 +1345,7 @@ def main() -> int:
                     ai_replay_confirm_data.get("write_effect") == "write",
                     json.dumps(ai_replay_confirm_data, ensure_ascii=False)[:240],
                 )
+                clear_plans(base_url, api_key, sessions[4])
             else:
                 assert_ok(
                     "route_ai_replay_short_empty_ok",
@@ -1318,451 +1379,84 @@ def main() -> int:
             )
 
             movie_recommend = route(base_url, api_key, sessions[5], "热门电影")
-            assert_route_action("route_recommend_movie", movie_recommend, "mp_recommendations")
-            movie_message = message_text(movie_recommend)
-            assert_ok("route_recommend_movie_type_filter", "| 电视剧 |" not in movie_message, movie_message[:240])
-            movie_to_mp = route(base_url, api_key, sessions[5], "选择 1")
-            movie_to_mp_data = data(movie_to_mp)
-            if movie_to_mp.get("success"):
-                movie_to_mp_data = assert_route_action("route_recommend_to_mp", movie_to_mp, "mp_media_search")
+            movie_recommend_data = data(movie_recommend)
+            movie_action = movie_recommend_data.get("action")
+            assert_ok(
+                "route_recommend_movie_current_entry",
+                movie_action in {"mp_recommendations", "hdhive_candidates", "pansou_search", "advanced_command_removed"},
+                json.dumps(movie_recommend, ensure_ascii=False)[:260],
+            )
+            if movie_action == "mp_recommendations":
+                movie_message = message_text(movie_recommend)
+                assert_ok("route_recommend_movie_type_filter", "| 电视剧 |" not in movie_message, movie_message[:240])
+            elif movie_action == "hdhive_candidates":
+                movie_to_hdhive = route(base_url, api_key, sessions[5], "选择 1")
+                movie_to_hdhive_data = assert_route_action("route_recommend_movie_choose_first_current", movie_to_hdhive, "hdhive_search")
                 assert_ok(
-                    "route_recommend_to_mp_scored",
-                    isinstance(((movie_to_mp_data.get("score_summary") or {}).get("decision") or {}).get("recommended_commands"), list),
-                    json.dumps(movie_to_mp_data.get("score_summary") or {}, ensure_ascii=False)[:240],
+                    "route_recommend_movie_choose_first_current_payload",
+                    isinstance(movie_to_hdhive_data.get("resources_count"), int)
+                    and isinstance(movie_to_hdhive_data.get("score_summary"), dict),
+                    json.dumps(movie_to_hdhive_data, ensure_ascii=False)[:260],
+                )
+            elif movie_action == "pansou_search":
+                assert_ok(
+                    "route_recommend_movie_pansou_current_payload",
+                    bool(movie_recommend_data.get("preferred_command"))
+                    and isinstance(movie_recommend_data.get("compact_commands") or [], list),
+                    json.dumps(movie_recommend_data, ensure_ascii=False)[:260],
                 )
             else:
                 assert_ok(
-                    "route_recommend_to_mp_empty_ok",
-                    movie_to_mp_data.get("action") == "mp_media_search"
-                    and ("未识别到媒体信息" in message_text(movie_to_mp) or "搜索资源失败" in message_text(movie_to_mp)),
-                    json.dumps(movie_to_mp, ensure_ascii=False)[:240],
+                    "route_recommend_movie_removed_payload",
+                    movie_recommend_data.get("action") == "advanced_command_removed"
+                    and bool(movie_recommend_data.get("preferred_command"))
+                    and isinstance(movie_recommend_data.get("compact_commands") or [], list),
+                    json.dumps(movie_recommend_data, ensure_ascii=False)[:260],
                 )
-            movie_recommend_pansou = route(base_url, api_key, sessions[6], "热门电影")
-            assert_route_action("route_recommend_movie_pansou_session", movie_recommend_pansou, "mp_recommendations")
-            movie_to_pansou = route(base_url, api_key, sessions[6], "选择 1 盘搜")
-            movie_to_pansou_data = assert_route_action("route_recommend_to_pansou", movie_to_pansou, "pansou_search")
-            assert_ok(
-                "route_recommend_to_pansou_entry_mode",
-                bool(movie_to_pansou_data.get("preferred_command"))
-                and isinstance(movie_to_pansou_data.get("compact_commands") or [], list),
-                json.dumps({
-                    "preferred_command": movie_to_pansou_data.get("preferred_command"),
-                    "compact_commands": movie_to_pansou_data.get("compact_commands"),
-                    "score_summary": movie_to_pansou_data.get("score_summary"),
-                }, ensure_ascii=False)[:240],
-            )
+
             smart_discovery = route(base_url, api_key, sessions[8], "智能发现 热门电影")
-            assert_route_action("route_smart_discovery", smart_discovery, "mp_recommendations")
-            recommend_to_decision = route(base_url, api_key, sessions[8], "选择 1 决策")
-            recommend_to_decision_data = assert_route_action("route_recommend_to_decision", recommend_to_decision, "smart_resource_decision", require_success=False)
-            assert_ok(
-                "route_recommend_to_decision_payload",
-                bool(recommend_to_decision_data.get("decision_mode"))
-                and isinstance(recommend_to_decision_data.get("available_sources"), list)
-                and isinstance(recommend_to_decision_data.get("blocked_sources"), list),
-                json.dumps(recommend_to_decision_data, ensure_ascii=False)[:240],
-            )
-            smart_discovery_plan = route(base_url, api_key, sessions[9], "智能发现 热门电影")
-            assert_route_action("route_smart_discovery_plan", smart_discovery_plan, "mp_recommendations")
-            recommend_to_plan = route(base_url, api_key, sessions[9], "选择 1 计划")
-            recommend_to_plan_data = data(recommend_to_plan)
-            assert_ok(
-                "route_recommend_to_plan",
-                recommend_to_plan.get("success")
-                and recommend_to_plan_data.get("action") in {"workflow_plan", "smart_resource_plan"},
-                json.dumps(recommend_to_plan, ensure_ascii=False)[:240],
+            smart_discovery_data = assert_route_action(
+                "route_smart_discovery_removed",
+                smart_discovery,
+                "advanced_command_removed",
+                require_success=False,
             )
             assert_ok(
-                "route_recommend_to_plan_payload",
-                bool(recommend_to_plan_data.get("plan_id")) and recommend_to_plan_data.get("workflow") == "smart_resource_plan",
-                json.dumps(recommend_to_plan_data, ensure_ascii=False)[:240],
+                "route_smart_discovery_removed_payload",
+                bool(smart_discovery_data.get("preferred_command"))
+                and isinstance(smart_discovery_data.get("compact_commands") or [], list),
+                json.dumps(smart_discovery_data, ensure_ascii=False)[:260],
             )
-            smart_discovery_execute = route(base_url, api_key, sessions[10], "智能发现 热门电影")
-            assert_route_action("route_smart_discovery_execute", smart_discovery_execute, "mp_recommendations")
-            recommend_to_execute = route(base_url, api_key, sessions[10], "选择 1 确认")
-            recommend_to_execute_data = data(recommend_to_execute)
-            assert_ok(
-                "route_recommend_to_execute",
-                recommend_to_execute_data.get("action") in {"smart_resource_execute", "execute_plan"}
-                and recommend_to_execute_data.get("write_effect") == "write",
-                json.dumps(recommend_to_execute, ensure_ascii=False)[:240],
-            )
-            assert_ok(
-                "route_recommend_to_execute_payload",
-                recommend_to_execute_data.get("write_effect") == "write",
-                json.dumps(recommend_to_execute_data, ensure_ascii=False)[:240],
-            )
-            smart_discovery_short_decision = route(base_url, api_key, sessions[11], "智能发现 热门电影")
-            assert_route_action("route_smart_discovery_short_decision", smart_discovery_short_decision, "mp_recommendations")
-            recommend_short_decision = route(base_url, api_key, sessions[11], "决策 1")
-            recommend_short_decision_data = assert_route_action("route_recommend_short_decision", recommend_short_decision, "smart_resource_decision", require_success=False)
-            assert_ok(
-                "route_recommend_short_decision_payload",
-                bool(recommend_short_decision_data.get("decision_mode")),
-                json.dumps(recommend_short_decision_data, ensure_ascii=False)[:240],
-            )
-            smart_discovery_short_plan = route(base_url, api_key, sessions[12], "智能发现 热门电影")
-            assert_route_action("route_smart_discovery_short_plan", smart_discovery_short_plan, "mp_recommendations")
-            recommend_short_plan = route(base_url, api_key, sessions[12], "计划 1")
-            recommend_short_plan_data = data(recommend_short_plan)
-            assert_ok(
-                "route_recommend_short_plan",
-                recommend_short_plan.get("success")
-                and recommend_short_plan_data.get("action") in {"workflow_plan", "smart_resource_plan"},
-                json.dumps(recommend_short_plan, ensure_ascii=False)[:240],
-            )
-            assert_ok(
-                "route_recommend_short_plan_payload",
-                bool(recommend_short_plan_data.get("plan_id")) and recommend_short_plan_data.get("workflow") == "smart_resource_plan",
-                json.dumps(recommend_short_plan_data, ensure_ascii=False)[:240],
-            )
-            smart_discovery_short_execute = route(base_url, api_key, sessions[13], "智能发现 热门电影")
-            assert_route_action("route_smart_discovery_short_execute", smart_discovery_short_execute, "mp_recommendations")
-            recommend_short_execute = route(base_url, api_key, sessions[13], "确认 1")
-            recommend_short_execute_data = data(recommend_short_execute)
-            assert_ok(
-                "route_recommend_short_execute",
-                recommend_short_execute_data.get("action") in {"smart_resource_execute", "execute_plan"}
-                and recommend_short_execute_data.get("write_effect") == "write",
-                json.dumps(recommend_short_execute, ensure_ascii=False)[:240],
-            )
-            smart_discovery_followups = route(base_url, api_key, sessions[14], "智能发现 热门电影")
-            assert_route_action("route_smart_discovery_followups", smart_discovery_followups, "mp_recommendations")
-            recommend_followup_movies = route(base_url, api_key, sessions[14], "电影")
-            recommend_followup_movies_data = assert_route_action("route_recommend_followup_movies", recommend_followup_movies, "mp_recommendations")
-            assert_ok(
-                "route_recommend_followup_movies_payload",
-                (
-                    recommend_followup_movies_data.get("kind") == "assistant_mp_recommend"
-                    and "tmdb_movies" in str(recommend_followup_movies_data.get("message_head") or "")
-                ),
-                json.dumps(recommend_followup_movies_data, ensure_ascii=False)[:240],
-            )
-            recommend_followup_bangumi = route(base_url, api_key, sessions[14], "番剧")
-            recommend_followup_bangumi_data = assert_route_action("route_recommend_followup_bangumi", recommend_followup_bangumi, "mp_recommendations")
-            assert_ok(
-                "route_recommend_followup_bangumi_payload",
-                (
-                    recommend_followup_bangumi_data.get("kind") == "assistant_mp_recommend"
-                    and "bangumi_calendar" in str(recommend_followup_bangumi_data.get("message_head") or "")
-                ),
-                json.dumps(recommend_followup_bangumi_data, ensure_ascii=False)[:240],
-            )
-            smart_discovery_detail_flow = route(base_url, api_key, sessions[15], "智能发现 热门电影")
-            assert_route_action("route_smart_discovery_detail_flow", smart_discovery_detail_flow, "mp_recommendations")
-            recommend_detail = route(base_url, api_key, sessions[15], "详情 1")
-            recommend_detail_data = assert_route_action("route_recommend_detail", recommend_detail, "mp_recommendation_detail")
-            assert_ok(
-                "route_recommend_detail_message_ok",
-                "MP 推荐条目详情" in str(recommend_detail_data.get("message_head") or ""),
-                json.dumps(recommend_detail_data, ensure_ascii=False)[:240],
-            )
-            recommend_detail_decision = route(base_url, api_key, sessions[15], "决策")
-            recommend_detail_decision_data = assert_route_action("route_recommend_detail_followup_decision", recommend_detail_decision, "smart_resource_decision", require_success=False)
-            assert_ok(
-                "route_recommend_detail_followup_decision_ok",
-                bool(recommend_detail_decision_data.get("decision_mode")),
-                json.dumps(recommend_detail_decision_data, ensure_ascii=False)[:240],
-            )
-            recommend_detail_plan = route(base_url, api_key, sessions[15], "计划")
-            recommend_detail_plan_data = assert_route_action("route_recommend_detail_followup_plan", recommend_detail_plan, "workflow_plan")
-            assert_ok(
-                "route_recommend_detail_followup_plan_ok",
-                bool(recommend_detail_plan_data.get("plan_id")),
-                json.dumps(recommend_detail_plan_data, ensure_ascii=False)[:240],
-            )
-            recommend_detail_confirm = route(base_url, api_key, sessions[15], "确认")
-            recommend_detail_confirm_data = assert_route_action("route_recommend_detail_followup_confirm", recommend_detail_confirm, "execute_plan", require_success=False)
-            confirm_message = message_text(recommend_detail_confirm)
-            assert_ok(
-                "route_recommend_detail_followup_confirm_pending_plan_ok",
-                "已根据智能搜索结果自动生成并执行当前首选计划" not in confirm_message,
-                confirm_message[:240],
-            )
-            assert_ok(
-                "route_recommend_detail_followup_confirm_has_followup_commands",
-                bool(recommend_detail_confirm_data.get("preferred_command"))
-                and isinstance(recommend_detail_confirm_data.get("compact_commands"), list)
-                and recommend_detail_confirm_data.get("command_source") in {"followup_summary", "error_summary"},
-                json.dumps(recommend_detail_confirm_data, ensure_ascii=False)[:240],
-            )
-            smart_discovery_autoplan = route(base_url, api_key, sessions[16], "智能发现 热门电影")
-            assert_route_action("route_smart_discovery_autoplan", smart_discovery_autoplan, "mp_recommendations")
-            smart_discovery_autoplan_data = data(smart_discovery_autoplan)
-            assert_ok(
-                "route_smart_discovery_autoplan_payload",
-                smart_discovery_autoplan_data.get("preferred_command") == "详情"
-                and smart_discovery_autoplan_data.get("fallback_command") == "计划",
-                json.dumps(smart_discovery_autoplan_data, ensure_ascii=False)[:240],
-            )
-            assert_ok(
-                "route_smart_discovery_provider_shortcuts_payload",
-                smart_discovery_autoplan_data.get("decision_short_command") == "决策"
-                and smart_discovery_autoplan_data.get("pansou_short_command") == "盘搜"
-                and smart_discovery_autoplan_data.get("hdhive_short_command") == "影巢"
-                and smart_discovery_autoplan_data.get("mp_short_command") == "原生",
-                json.dumps(smart_discovery_autoplan_data, ensure_ascii=False)[:280],
-            )
-            recommend_autoplan = route(base_url, api_key, sessions[16], "计划")
-            recommend_autoplan_data = data(recommend_autoplan)
-            assert_ok(
-                "route_recommend_autoplan",
-                recommend_autoplan.get("success")
-                and recommend_autoplan_data.get("action") in {"workflow_plan", "smart_resource_plan"},
-                json.dumps(recommend_autoplan, ensure_ascii=False)[:240],
-            )
-            assert_ok(
-                "route_recommend_autoplan_has_plan",
-                bool(recommend_autoplan_data.get("plan_id")) and recommend_autoplan_data.get("workflow") == "smart_resource_plan",
-                json.dumps(recommend_autoplan_data, ensure_ascii=False)[:240],
-            )
-            assert_ok(
-                "route_recommend_autoplan_short_policy",
-                recommend_autoplan_data.get("preferred_command") == "确认"
-                and recommend_autoplan_data.get("fallback_command") == "详情"
-                and recommend_autoplan_data.get("detail_short_command") == "详情"
-                and recommend_autoplan_data.get("confirm_short_command") == "确认",
-                json.dumps(recommend_autoplan_data, ensure_ascii=False)[:280],
-            )
-            recommend_autoconfirm = route(base_url, api_key, sessions[16], "确认")
-            recommend_autoconfirm_data = data(recommend_autoconfirm)
-            assert_ok(
-                "route_recommend_autoconfirm",
-                recommend_autoconfirm_data.get("action") == "execute_plan"
-                and recommend_autoconfirm_data.get("write_effect") == "write",
-                json.dumps(recommend_autoconfirm, ensure_ascii=False)[:240],
-            )
-            direct_discovery_detail = route(base_url, api_key, sessions[17], "智能发现 热门电影 详情")
-            direct_discovery_detail_data = assert_route_action("route_smart_discovery_direct_detail", direct_discovery_detail, "mp_recommendation_detail")
-            assert_ok(
-                "route_smart_discovery_direct_detail_message_ok",
-                "MP 推荐条目详情" in str(direct_discovery_detail_data.get("message_head") or ""),
-                json.dumps(direct_discovery_detail_data, ensure_ascii=False)[:240],
-            )
-            direct_discovery_plan = route(base_url, api_key, sessions[18], "智能发现 热门电影 计划")
-            direct_discovery_plan_data = data(direct_discovery_plan)
-            assert_ok(
-                "route_smart_discovery_direct_plan",
-                direct_discovery_plan.get("success")
-                and direct_discovery_plan_data.get("action") in {"workflow_plan", "smart_resource_plan"}
-                and bool(direct_discovery_plan_data.get("plan_id")),
-                json.dumps(direct_discovery_plan, ensure_ascii=False)[:260],
-            )
-            direct_discovery_execute = route(base_url, api_key, sessions[19], "智能发现 热门电影 确认")
-            direct_discovery_execute_data = data(direct_discovery_execute)
-            assert_ok(
-                "route_smart_discovery_direct_execute",
-                direct_discovery_execute_data.get("action") in {"smart_resource_execute", "execute_plan"}
-                and direct_discovery_execute_data.get("write_effect") == "write",
-                json.dumps(direct_discovery_execute, ensure_ascii=False)[:260],
-            )
-            direct_discovery_pansou = route(base_url, api_key, sessions[20], "智能发现 热门电影 盘搜")
-            direct_discovery_pansou_data = assert_route_action("route_smart_discovery_direct_pansou", direct_discovery_pansou, "pansou_search")
-            assert_ok(
-                "route_smart_discovery_direct_pansou_payload",
-                bool((direct_discovery_pansou_data.get("score_summary") or {}).get("best")),
-                json.dumps(direct_discovery_pansou_data, ensure_ascii=False)[:260],
-            )
-            direct_discovery_hdhive = route(base_url, api_key, sessions[21], "智能发现 热门电影 影巢")
-            assert_route_action("route_smart_discovery_direct_hdhive", direct_discovery_hdhive, "hdhive_candidates", require_success=False)
-            direct_discovery_mp = route(base_url, api_key, sessions[22], "智能发现 热门电影 原生")
-            direct_discovery_mp_data = assert_route_action("route_smart_discovery_direct_mp", direct_discovery_mp, "mp_media_search")
-            assert_ok(
-                "route_smart_discovery_direct_mp_payload",
-                isinstance((direct_discovery_mp_data.get("items") or []), list),
-                json.dumps(direct_discovery_mp_data, ensure_ascii=False)[:260],
-            )
-            smart_discovery_return_pansou = route(base_url, api_key, sessions[23], "智能发现 热门电影 盘搜")
-            smart_discovery_return_pansou_data = assert_route_action("route_smart_discovery_return_pansou_entry", smart_discovery_return_pansou, "pansou_search")
-            assert_ok(
-                "route_smart_discovery_return_pansou_entry_payload",
-                smart_discovery_return_pansou_data.get("return_short_command") == "回推荐",
-                json.dumps(smart_discovery_return_pansou_data, ensure_ascii=False)[:260],
-            )
-            recommend_return_from_pansou = route(base_url, api_key, sessions[23], "回推荐")
-            recommend_return_from_pansou_data = assert_route_action("route_smart_discovery_return_pansou", recommend_return_from_pansou, "mp_recommendations")
-            assert_ok(
-                "route_smart_discovery_return_pansou_payload",
-                recommend_return_from_pansou_data.get("selected_index") == 1,
-                json.dumps(recommend_return_from_pansou_data, ensure_ascii=False)[:260],
-            )
-            smart_discovery_return_mp = route(base_url, api_key, sessions[24], "智能发现 热门电影 原生")
-            smart_discovery_return_mp_data = assert_route_action("route_smart_discovery_return_mp_entry", smart_discovery_return_mp, "mp_media_search")
-            assert_ok(
-                "route_smart_discovery_return_mp_entry_payload",
-                smart_discovery_return_mp_data.get("return_short_command") == "回推荐",
-                json.dumps(smart_discovery_return_mp_data, ensure_ascii=False)[:260],
-            )
-            recommend_return_from_mp = route(base_url, api_key, sessions[24], "回推荐")
-            recommend_return_from_mp_data = assert_route_action("route_smart_discovery_return_mp", recommend_return_from_mp, "mp_recommendations")
-            assert_ok(
-                "route_smart_discovery_return_mp_payload",
-                recommend_return_from_mp_data.get("selected_index") == 1,
-                json.dumps(recommend_return_from_mp_data, ensure_ascii=False)[:260],
-            )
-            smart_discovery_switch_pansou = route(base_url, api_key, sessions[25], "智能发现 热门电影 盘搜")
-            smart_discovery_switch_pansou_data = assert_route_action("route_smart_discovery_switch_pansou_entry", smart_discovery_switch_pansou, "pansou_search")
-            assert_ok(
-                "route_smart_discovery_switch_pansou_entry_payload",
-                isinstance((smart_discovery_switch_pansou_data.get("recommend_handoff") or {}).get("source_short_commands"), dict),
-                json.dumps(smart_discovery_switch_pansou_data, ensure_ascii=False)[:260],
-            )
-            switch_pansou_to_hdhive = route(base_url, api_key, sessions[25], "影巢")
-            switch_pansou_to_hdhive_data = assert_route_action("route_smart_discovery_switch_pansou_to_hdhive", switch_pansou_to_hdhive, "hdhive_candidates", require_success=False)
-            assert_ok(
-                "route_smart_discovery_switch_pansou_to_hdhive_payload",
-                switch_pansou_to_hdhive_data.get("return_short_command") == "回推荐",
-                json.dumps(switch_pansou_to_hdhive_data, ensure_ascii=False)[:260],
-            )
-            return_after_switch_pansou = route(base_url, api_key, sessions[25], "回推荐")
-            return_after_switch_pansou_data = assert_route_action("route_smart_discovery_switch_pansou_return", return_after_switch_pansou, "mp_recommendations")
-            assert_ok(
-                "route_smart_discovery_switch_pansou_return_payload",
-                return_after_switch_pansou_data.get("selected_index") == 1,
-                json.dumps(return_after_switch_pansou_data, ensure_ascii=False)[:260],
-            )
-            smart_discovery_switch_mp = route(base_url, api_key, sessions[26], "智能发现 热门电影 原生")
-            assert_route_action("route_smart_discovery_switch_mp_entry", smart_discovery_switch_mp, "mp_media_search")
-            switch_mp_to_pansou = route(base_url, api_key, sessions[26], "盘搜")
-            switch_mp_to_pansou_data = assert_route_action("route_smart_discovery_switch_mp_to_pansou", switch_mp_to_pansou, "pansou_search")
-            assert_ok(
-                "route_smart_discovery_switch_mp_to_pansou_payload",
-                switch_mp_to_pansou_data.get("return_short_command") == "回推荐",
-                json.dumps(switch_mp_to_pansou_data, ensure_ascii=False)[:260],
-            )
-            handoff_pansou_recommend = route(base_url, api_key, sessions[27], "智能发现 热门电影")
-            assert_route_action("route_smart_discovery_handoff_pansou_recommend", handoff_pansou_recommend, "mp_recommendations")
-            handoff_pansou_start = route(base_url, api_key, sessions[27], "盘搜")
-            handoff_pansou_start_data = assert_route_action("route_smart_discovery_handoff_pansou_start", handoff_pansou_start, "pansou_search")
-            assert_ok(
-                "route_smart_discovery_handoff_pansou_start_payload",
-                handoff_pansou_start_data.get("return_short_command") == "回推荐",
-                json.dumps(handoff_pansou_start_data, ensure_ascii=False)[:260],
-            )
-            assert_ok(
-                "route_smart_discovery_handoff_pansou_start_short_policy",
-                handoff_pansou_start_data.get("preferred_command") == "详情"
-                and handoff_pansou_start_data.get("fallback_command") == "计划",
-                json.dumps(handoff_pansou_start_data, ensure_ascii=False)[:260],
-            )
-            handoff_pansou_detail = route(base_url, api_key, sessions[27], "详情")
-            handoff_pansou_detail_data = assert_route_action("route_smart_discovery_handoff_pansou_detail", handoff_pansou_detail, "pansou_best_detail")
-            assert_ok(
-                "route_smart_discovery_handoff_pansou_detail_payload",
-                isinstance(handoff_pansou_detail_data.get("score_summary"), dict),
-                json.dumps(handoff_pansou_detail_data, ensure_ascii=False)[:260],
-            )
-            assert_ok(
-                "route_smart_discovery_handoff_pansou_detail_short_policy",
-                handoff_pansou_detail_data.get("preferred_command") == "计划"
-                and handoff_pansou_detail_data.get("fallback_command") == "确认",
-                json.dumps(handoff_pansou_detail_data, ensure_ascii=False)[:260],
-            )
-            handoff_pansou_plan = route(base_url, api_key, sessions[27], "计划")
-            handoff_pansou_plan_data = assert_route_action("route_smart_discovery_handoff_pansou_plan", handoff_pansou_plan, "workflow_plan")
-            assert_ok(
-                "route_smart_discovery_handoff_pansou_plan_payload",
-                bool(handoff_pansou_plan_data.get("plan_id")),
-                json.dumps(handoff_pansou_plan_data, ensure_ascii=False)[:260],
-            )
-            assert_ok(
-                "route_smart_discovery_handoff_pansou_plan_short_policy",
-                handoff_pansou_plan_data.get("preferred_command") == "确认"
-                and handoff_pansou_plan_data.get("fallback_command") == "详情",
-                json.dumps(handoff_pansou_plan_data, ensure_ascii=False)[:260],
-            )
-            handoff_pansou_confirm = route(base_url, api_key, sessions[27], "确认")
-            handoff_pansou_confirm_data = assert_route_action("route_smart_discovery_handoff_pansou_confirm", handoff_pansou_confirm, "execute_plan", require_success=False)
-            assert_ok(
-                "route_smart_discovery_handoff_pansou_confirm_payload",
-                handoff_pansou_confirm_data.get("write_effect") == "write",
-                json.dumps(handoff_pansou_confirm_data, ensure_ascii=False)[:260],
-            )
-            assert_ok(
-                "route_smart_discovery_handoff_pansou_confirm_followup",
-                handoff_pansou_confirm_data.get("preferred_command") in {"决策", "后续", ""}
-                or (handoff_pansou_confirm_data.get("followup_summary") or {}).get("preferred_command") == "决策",
-                json.dumps(handoff_pansou_confirm_data, ensure_ascii=False)[:260],
-            )
-            handoff_mp_recommend = route(base_url, api_key, sessions[28], "智能发现 热门电影")
-            assert_route_action("route_smart_discovery_handoff_mp_recommend", handoff_mp_recommend, "mp_recommendations")
-            handoff_mp_start = route(base_url, api_key, sessions[28], "原生")
-            handoff_mp_start_data = assert_route_action("route_smart_discovery_handoff_mp_start", handoff_mp_start, "mp_media_search")
-            assert_ok(
-                "route_smart_discovery_handoff_mp_start_payload",
-                handoff_mp_start_data.get("return_short_command") == "回推荐",
-                json.dumps(handoff_mp_start_data, ensure_ascii=False)[:260],
-            )
-            assert_ok(
-                "route_smart_discovery_handoff_mp_start_short_policy",
-                handoff_mp_start_data.get("preferred_command") == "详情"
-                and handoff_mp_start_data.get("fallback_command") == "计划",
-                json.dumps(handoff_mp_start_data, ensure_ascii=False)[:260],
-            )
-            handoff_mp_detail = route(base_url, api_key, sessions[28], "详情")
-            handoff_mp_detail_data = assert_route_action("route_smart_discovery_handoff_mp_detail", handoff_mp_detail, "mp_search_best_detail")
-            assert_ok(
-                "route_smart_discovery_handoff_mp_detail_payload",
-                isinstance(handoff_mp_detail_data.get("score_summary"), dict),
-                json.dumps(handoff_mp_detail_data, ensure_ascii=False)[:260],
-            )
-            assert_ok(
-                "route_smart_discovery_handoff_mp_detail_short_policy",
-                handoff_mp_detail_data.get("preferred_command") == "计划"
-                and handoff_mp_detail_data.get("fallback_command") == "确认",
-                json.dumps(handoff_mp_detail_data, ensure_ascii=False)[:260],
-            )
-            handoff_mp_plan = route(base_url, api_key, sessions[28], "计划")
-            handoff_mp_plan_data = assert_route_action("route_smart_discovery_handoff_mp_plan", handoff_mp_plan, "workflow_plan")
-            assert_ok(
-                "route_smart_discovery_handoff_mp_plan_payload",
-                bool(handoff_mp_plan_data.get("plan_id")),
-                json.dumps(handoff_mp_plan_data, ensure_ascii=False)[:260],
-            )
-            assert_ok(
-                "route_smart_discovery_handoff_mp_plan_short_policy",
-                handoff_mp_plan_data.get("preferred_command") == "确认"
-                and handoff_mp_plan_data.get("fallback_command") == "详情",
-                json.dumps(handoff_mp_plan_data, ensure_ascii=False)[:260],
-            )
-            handoff_mp_decision = route(base_url, api_key, sessions[28], "决策")
-            handoff_mp_decision_data = assert_route_action("route_smart_discovery_handoff_mp_decision", handoff_mp_decision, "smart_resource_decision", require_success=False)
-            assert_ok(
-                "route_smart_discovery_handoff_mp_decision_payload",
-                bool(handoff_mp_decision_data.get("decision_mode")),
-                json.dumps(handoff_mp_decision_data, ensure_ascii=False)[:260],
-            )
-            recommend_source_compound = route(base_url, api_key, sessions[29], "智能发现 热门电影")
-            assert_route_action("route_smart_discovery_source_compound_recommend", recommend_source_compound, "mp_recommendations")
-            recommend_source_compound_pansou_plan = route(base_url, api_key, sessions[29], "盘搜 计划")
-            recommend_source_compound_pansou_plan_data = assert_route_action(
-                "route_smart_discovery_source_compound_pansou_plan",
-                recommend_source_compound_pansou_plan,
-                "workflow_plan",
-            )
-            assert_ok(
-                "route_smart_discovery_source_compound_pansou_plan_payload",
-                bool(recommend_source_compound_pansou_plan_data.get("plan_id")),
-                json.dumps(recommend_source_compound_pansou_plan_data, ensure_ascii=False)[:260],
-            )
-            recommend_source_compound_mp = route(base_url, api_key, sessions[30], "智能发现 热门电影 盘搜")
-            assert_route_action("route_smart_discovery_source_compound_handoff_entry", recommend_source_compound_mp, "pansou_search")
-            recommend_source_compound_mp_detail = route(base_url, api_key, sessions[30], "原生 详情")
-            recommend_source_compound_mp_detail_data = assert_route_action(
-                "route_smart_discovery_source_compound_mp_detail",
-                recommend_source_compound_mp_detail,
-                "mp_search_best_detail",
-            )
-            assert_ok(
-                "route_smart_discovery_source_compound_mp_detail_payload",
-                recommend_source_compound_mp_detail_data.get("preferred_command") == "计划"
-                and recommend_source_compound_mp_detail_data.get("fallback_command") == "确认",
-                json.dumps(recommend_source_compound_mp_detail_data, ensure_ascii=False)[:260],
-            )
+
             tv_recommend = route(base_url, api_key, sessions[7], "热门电视剧")
-            assert_route_action("route_recommend_tv", tv_recommend, "mp_recommendations")
-            tv_message = message_text(tv_recommend)
-            assert_ok("route_recommend_tv_type_filter", "| 电影 |" not in tv_message, tv_message[:240])
+            tv_recommend_data = data(tv_recommend)
+            tv_action = tv_recommend_data.get("action")
+            assert_ok(
+                "route_recommend_tv_current_entry",
+                tv_action in {"mp_recommendations", "hdhive_candidates", "pansou_search", "advanced_command_removed"},
+                json.dumps(tv_recommend, ensure_ascii=False)[:260],
+            )
+            if tv_action == "mp_recommendations":
+                tv_message = message_text(tv_recommend)
+                assert_ok("route_recommend_tv_type_filter", "| 电影 |" not in tv_message, tv_message[:240])
+            elif tv_action == "pansou_search":
+                assert_ok(
+                    "route_recommend_tv_pansou_current_payload",
+                    bool(tv_recommend_data.get("preferred_command"))
+                    and isinstance(tv_recommend_data.get("compact_commands") or [], list),
+                    json.dumps(tv_recommend_data, ensure_ascii=False)[:260],
+                )
+            elif tv_action == "hdhive_candidates":
+                tv_to_hdhive = route(base_url, api_key, sessions[7], "选择 1")
+                assert_route_action("route_recommend_tv_choose_first_current", tv_to_hdhive, "hdhive_search", require_success=False)
+            else:
+                assert_ok(
+                    "route_recommend_tv_removed_payload",
+                    tv_recommend_data.get("action") == "advanced_command_removed"
+                    and bool(tv_recommend_data.get("preferred_command"))
+                    and isinstance(tv_recommend_data.get("compact_commands") or [], list),
+                    json.dumps(tv_recommend_data, ensure_ascii=False)[:260],
+                )
     finally:
         for session in sessions:
             clear_plans(base_url, api_key, session)

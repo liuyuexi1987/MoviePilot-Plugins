@@ -181,6 +181,7 @@ gh workflow run draft-release.yml -f tag=<tag> -f dry_run=true
 - `scripts/verify-skill-dist.sh` 必须能验证 Skill ZIP SHA256、MANIFEST、基础目录结构、不应发布的生成文件，以及 `agent-resource-officer` ZIP 解压后的 `external-agent` 入口
 - `scripts/verify-release-assets.sh` 必须能一次校验插件 ZIP 和 Skill ZIP
 - `scripts/verify-release-preflight-artifact.sh` 必须能下载并校验 GitHub Actions artifact
+- `scripts/check-moviepilot-upstream-compat.py` 必须能对最新 MoviePilot release 做关键接口兼容校验
 - `scripts/print-release-summary.sh` 必须能基于 `MANIFEST.json` 输出 Release Markdown 表格
 - `scripts/generate-release-notes.sh` 必须能生成统一 Release 正文，并包含 `external-agent / external-agent --full` 重点
 - `.github/workflows/ci.yml` 和 `draft-release.yml` 必须使用 artifact 上传步骤，并包含插件 ZIP、Skill ZIP、`SHA256SUMS.txt`、`MANIFEST.json`
