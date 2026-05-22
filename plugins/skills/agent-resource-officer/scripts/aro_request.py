@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -1655,6 +1656,42 @@ def helper_route_command(command, session="", session_id=""):
     return f"python3 scripts/aro_request.py route {shell_quote(command_text)}{session_part}{session_id_part}"
 
 
+_PANSOU_SEARCH_PREFIXES = ("盘搜搜索",)
+_YEAR_STRONG_CONSTRAINT_RE = re.compile(r"[版只看按带]$")
+
+
+def strip_pansou_parenthesized_year(text: str) -> str:
+    """Strip trailing parenthesized year from direct PanSou search keywords.
+
+    Only applies when the command starts with a known PanSou search prefix and
+    the keyword ends with ``(YYYY)`` or ``（YYYY）``.  Preserves the year when
+    the user explicitly marks it as a constraint (e.g. ``2026版``, ``只看2026``).
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        return raw
+    for prefix in _PANSOU_SEARCH_PREFIXES:
+        if not raw.startswith(prefix):
+            continue
+        keyword = raw[len(prefix):].strip()
+        if not keyword:
+            return raw
+        # Match trailing parenthesized year: (2026) or （2026）
+        m = re.search(r"[(\（](\d{4})[)\）]\s*$", keyword)
+        if not m:
+            return raw
+        # Check for strong constraint marker right before the year
+        pre_year = keyword[: m.start()].rstrip()
+        if pre_year and _YEAR_STRONG_CONSTRAINT_RE.search(pre_year):
+            return raw
+        # Strip the parenthesized year
+        cleaned = pre_year.rstrip()
+        if not cleaned:
+            return raw
+        return f"{prefix} {cleaned}"
+    return raw
+
+
 def recovery_helper_commands(recovery):
     recovery = recovery if isinstance(recovery, dict) else {}
     template = recovery.get("action_template") if isinstance(recovery.get("action_template"), dict) else {}
@@ -2212,6 +2249,16 @@ def selftest_result():
     check("workflow_catalog_marks_plan_write", workflow_entry.get("writes") is True and "plan" in workflow_entry.get("write_condition", ""))
     check("commands_recommended_start", catalog.get("recommended_start") == "python3 scripts/aro_request.py decide --summary-only")
 
+    # ── strip_pansou_parenthesized_year ──
+    check("year_strip_pansou_cn", strip_pansou_parenthesized_year("盘搜搜索 黑夜告白 (2026)") == "盘搜搜索 黑夜告白")
+    check("year_strip_pansou_fullwidth", strip_pansou_parenthesized_year("盘搜搜索 黑夜告白（2026）") == "盘搜搜索 黑夜告白")
+    check("year_strip_preserve_hdhive", strip_pansou_parenthesized_year("影巢搜索 Light to the Night (2026)") == "影巢搜索 Light to the Night (2026)")
+    check("year_strip_preserve_cloud", strip_pansou_parenthesized_year("云盘搜索 黑夜告白 (2026)") == "云盘搜索 黑夜告白 (2026)")
+    check("year_strip_preserve_constraint", strip_pansou_parenthesized_year("盘搜搜索 2026 版黑夜告白") == "盘搜搜索 2026 版黑夜告白")
+    check("year_strip_preserve_non_pansou", strip_pansou_parenthesized_year("MP搜索 黑夜告白 (2026)") == "MP搜索 黑夜告白 (2026)")
+    check("year_strip_preserve_middle", strip_pansou_parenthesized_year("盘搜搜索 (2026) 黑夜告白") == "盘搜搜索 (2026) 黑夜告白")
+    check("year_strip_empty_passthrough", strip_pansou_parenthesized_year("") == "")
+
     passed = sum(1 for item in checks if item.get("ok"))
     failed = [item for item in checks if not item.get("ok")]
     result = {
@@ -2705,7 +2752,7 @@ def main():
     elif args.command == "route":
         method = "POST"
         path = assistant_path("route")
-        route_text = args.text or ""
+        route_text = strip_pansou_parenthesized_year(args.text or "")
         body = {
             "text": route_text,
             "compact": True,

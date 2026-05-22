@@ -243,6 +243,8 @@ When the current client has no MoviePilot MCP tools, do not announce an MCP fall
 
 `云盘搜索` is deprecated. If a user still says `云盘搜索 <片名>`, do not invent your own combined search. Let the plugin return its deprecation hint, then guide the user toward `盘搜搜索 <片名>` or `影巢搜索 <片名>`.
 
+When constructing a `盘搜搜索` command from a previous search result title that contains a parenthesized year such as `黑夜告白 (2026)` or `Light to the Night（2026）`, strip the parenthesized year and route only the clean title: `盘搜搜索 黑夜告白`. The year is useful for context and recommendation, but parenthesized years narrow PanSou recall. The helper script `aro_request.py route` does this stripping automatically for `盘搜搜索` commands, so you do not need to strip it yourself — but do not deliberately add the year back. Preserve the year only when the user explicitly marks it as a strong constraint such as `2026版`, `只看2026版`, `按2026搜`, or `带2026`. `MP搜索` / `PT搜索` / `影巢搜索` commands from the user's own input are passed through unchanged regardless of parenthesized years.
+
 When a user says `更新 <片名>`, `更新检查 <片名>`, `查更新 <片名>`, `检查 <片名>`, or a glued form like `检查大君夫人`, route that text directly first. The plugin will redirect these to search semantics. Do not clear the session first, do not guess that the user meant HDHive candidate search, and do not replace it with a generic search flow. `检查115登录` remains a login-check command, not a search command.
 
 When a user says `刷新影巢Cookie`, do not route that phrase into AgentResourceOfficer. Treat it as a host-side repair action and run:
