@@ -32,17 +32,35 @@ class HDHiveOpenApiService:
     _login_action_router_state = '%5B%22%22%2C%7B%22children%22%3A%5B%22(auth)%22%2C%7B%22children%22%3A%5B%22login%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2C%22%2Flogin%22%2C%22refresh%22%5D%7D%5D%7D%2Cnull%2Cnull%2Ctrue%5D%7D%2Cnull%2Cnull%2Ctrue%5D'
     _login_action_fallback = "602b5a3af7ab2e93be6a14001ca83c1be491ccecea"
 
+    # Meta endpoints that only require app-level X-API-Key auth.
+    _META_ENDPOINT_PREFIXES: Tuple[str, ...] = (
+        "/api/open/ping",
+        "/api/open/quota",
+        "/api/open/usage",
+        "/api/open/usage/today",
+    )
+    # Refresh endpoint path per HDHive documented OpenAPI contract.
+    _REFRESH_ENDPOINT = "/api/public/openapi/oauth/refresh"
+
     def __init__(
         self,
         *,
         api_key: str = "",
         base_url: str = "https://hdhive.com",
         timeout: int = 30,
+        openapi_user_token: str = "",
+        openapi_refresh_token: str = "",
     ) -> None:
         self.api_key = self.normalize_text(api_key)
         self.base_url = (self.normalize_text(base_url) or "https://hdhive.com").rstrip("/")
         self.timeout = self.safe_int(timeout, 30)
+        self.openapi_user_token = self.normalize_text(openapi_user_token)
+        self.openapi_refresh_token = self.normalize_text(openapi_refresh_token)
         self._login_action_id = ""
+        self._in_refresh_retry = False
+
+    def _is_meta_endpoint(self, path: str) -> bool:
+        return any(path.startswith(prefix) for prefix in self._META_ENDPOINT_PREFIXES)
 
     @staticmethod
     def safe_int(value: Any, default: int) -> int:
@@ -187,15 +205,29 @@ class HDHiveOpenApiService:
         params: Optional[Dict[str, Any]] = None,
         payload: Optional[Dict[str, Any]] = None,
         timeout: Optional[int] = None,
+        require_user_auth: Optional[bool] = None,
     ) -> Tuple[bool, Dict[str, Any], str, int]:
         if not self.api_key:
             return False, {}, "未配置影巢 API Key", 400
+
+        # Auto-detect: meta endpoints don't need user auth; business endpoints do.
+        needs_user_auth = require_user_auth if require_user_auth is not None else not self._is_meta_endpoint(path)
+        if needs_user_auth and not self.openapi_user_token:
+            return False, {}, (
+                "当前影巢 OpenAPI 业务接口需要用户授权令牌（Bearer Token），"
+                "但未配置 hdhive_openapi_user_token。请先在插件配置中填入 OpenAPI 用户 Access Token，"
+                "或通过 OAuth 流程获取后填入。"
+            ), 401
+
+        headers = self.base_headers()
+        if needs_user_auth and self.openapi_user_token:
+            headers["Authorization"] = f"Bearer {self.openapi_user_token}"
 
         try:
             response = requests.request(
                 method=method.upper(),
                 url=self.api_url(path),
-                headers=self.base_headers(),
+                headers=headers,
                 params=params,
                 json=payload if payload is not None else None,
                 timeout=timeout or self.timeout,
@@ -216,6 +248,25 @@ class HDHiveOpenApiService:
         if response.ok and isinstance(result, dict) and result.get("success", True):
             return True, result, "", response.status_code
 
+        # If a business request fails with 401/403 and we have a refresh token, try once.
+        if (
+            needs_user_auth
+            and response.status_code in (401, 403)
+            and self.openapi_refresh_token
+            and not self._in_refresh_retry
+        ):
+            refresh_ok = self._try_refresh_user_token()
+            if refresh_ok:
+                self._in_refresh_retry = True
+                try:
+                    return self.request(
+                        method, path,
+                        params=params, payload=payload, timeout=timeout,
+                        require_user_auth=True,
+                    )
+                finally:
+                    self._in_refresh_retry = False
+
         message = ""
         if isinstance(result, dict):
             message = (
@@ -227,6 +278,40 @@ class HDHiveOpenApiService:
         if not message:
             message = f"HTTP {response.status_code}"
         return False, result if isinstance(result, dict) else {}, message, response.status_code
+
+    def _try_refresh_user_token(self) -> bool:
+        if not self.openapi_refresh_token:
+            return False
+        try:
+            response = requests.post(
+                url=self.api_url(self._REFRESH_ENDPOINT),
+                headers=self.base_headers(),
+                json={"refresh_token": self.openapi_refresh_token},
+                timeout=self.timeout,
+                proxies=getattr(settings, "PROXY", None) if settings is not None else None,
+            )
+            if response.status_code != 200:
+                return False
+            data = response.json()
+            if not isinstance(data, dict) or not data.get("success", True):
+                return False
+            meta = data.get("data") if isinstance(data.get("data"), dict) else {}
+            new_access = self.normalize_text(meta.get("access_token") or meta.get("token"))
+            new_refresh = self.normalize_text(meta.get("refresh_token")) or self.openapi_refresh_token
+            if not new_access:
+                return False
+            self.openapi_user_token = new_access
+            self.openapi_refresh_token = new_refresh
+            return True
+        except Exception:
+            return False
+
+    def auth_status(self) -> Dict[str, Any]:
+        return {
+            "api_key_configured": bool(self.api_key),
+            "user_token_configured": bool(self.openapi_user_token),
+            "refresh_token_configured": bool(self.openapi_refresh_token),
+        }
 
     def resource_sort_key(self, item: Dict[str, Any]) -> Tuple[int, int, int, int, str]:
         pan = str(item.get("pan_type") or "").lower()

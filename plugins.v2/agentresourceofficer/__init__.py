@@ -16,6 +16,7 @@ from urllib.parse import urlparse, urlencode
 from urllib.request import Request as UrlRequest, urlopen
 
 from fastapi import Request
+from fastapi.responses import HTMLResponse
 try:
     from apscheduler.triggers.cron import CronTrigger
 except Exception:
@@ -60,6 +61,7 @@ except Exception:
 from app.plugins import _PluginBase
 
 from .services.hdhive_openapi import HDHiveOpenApiService
+from .services.hdhive_browser import HDHiveBrowserService
 from .services.p115_transfer import P115TransferService
 from .services.quark_transfer import QuarkTransferService
 from .feishu_channel import FeishuChannel
@@ -126,7 +128,7 @@ class AgentResourceOfficer(_PluginBase):
     plugin_name = "Agent影视助手"
     plugin_desc = "龙虾agent稳定控制 MP：飞书入口、盘搜/影巢搜索、115/夸克转存、智能评分推荐。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png"
-    plugin_version = "0.2.73"
+    plugin_version = "0.2.92"
     moviepilot_tested_version = "v2.11.4"
     moviepilot_tested_release_url = "https://github.com/jxxghp/MoviePilot/releases/tag/v2.11.4"
     request_templates_schema_version = "request_templates.v1"
@@ -149,6 +151,7 @@ class AgentResourceOfficer(_PluginBase):
     _pansou_timeout = 20
     _hdhive_api_key = ""
     _hdhive_base_url = "https://hdhive.com"
+    _hdhive_resource_mode = "browser"  # browser | openapi | auto
     _hdhive_timeout = 30
     _hdhive_default_path = "/待整理"
     _assistant_result_page_size = 10
@@ -163,6 +166,8 @@ class AgentResourceOfficer(_PluginBase):
     _hdhive_checkin_auto_login = True
     _hdhive_checkin_username = ""
     _hdhive_checkin_password = ""
+    _hdhive_openapi_user_token = ""
+    _hdhive_openapi_refresh_token = ""
     _p115_default_path = "/待整理"
     _p115_client_type = "alipaymini"
     _p115_cookie = ""
@@ -1174,6 +1179,9 @@ class AgentResourceOfficer(_PluginBase):
         self._pansou_timeout = max(3, min(120, self._safe_int(config.get("pansou_timeout"), 20)))
         self._hdhive_api_key = self._clean_text(config.get("hdhive_api_key"))
         self._hdhive_base_url = self._clean_text(config.get("hdhive_base_url") or "https://hdhive.com").rstrip("/")
+        self._hdhive_resource_mode = (self._clean_text(config.get("hdhive_resource_mode")) or "browser").lower()
+        if self._hdhive_resource_mode not in ("browser", "openapi", "auto"):
+            self._hdhive_resource_mode = "browser"
         self._hdhive_timeout = self._safe_int(config.get("hdhive_timeout"), 30)
         self._hdhive_default_path = self._normalize_path(config.get("hdhive_default_path") or "/待整理")
         self._hdhive_candidate_page_size = max(5, min(10, self._safe_int(config.get("hdhive_candidate_page_size"), self._assistant_result_page_size)))
@@ -1187,6 +1195,8 @@ class AgentResourceOfficer(_PluginBase):
         self._hdhive_checkin_auto_login = bool(config.get("hdhive_checkin_auto_login", True))
         self._hdhive_checkin_username = self._clean_text(config.get("hdhive_checkin_username"))
         self._hdhive_checkin_password = self._clean_text(config.get("hdhive_checkin_password"))
+        self._hdhive_openapi_user_token = self._clean_text(config.get("hdhive_openapi_user_token"))
+        self._hdhive_openapi_refresh_token = self._clean_text(config.get("hdhive_openapi_refresh_token"))
         self._p115_default_path = self._normalize_path(config.get("p115_default_path") or "/待整理")
         self._p115_client_type = P115TransferService.normalize_qrcode_client_type(config.get("p115_client_type"))
         self._p115_cookie = self._clean_text(config.get("p115_cookie"))
@@ -1359,6 +1369,8 @@ class AgentResourceOfficer(_PluginBase):
             if capability == "checkin":
                 return "影巢 OpenAPI 签到当前需要 Premium 用户；普通用户可配置网页 Cookie 或账号密码启用网页签到兜底。"
             return f"影巢 OpenAPI 的{capability}接口当前需要 Premium 用户。"
+        if "未配置影巢 OpenAPI 业务接口需要用户授权令牌" in text or "hdhive_openapi_user_token" in lowered:
+            return f"影巢 OpenAPI {capability}需要用户授权令牌，请在插件配置中填入 OpenAPI 用户 Access Token。"
         return text or f"影巢 {capability} 接口调用失败"
 
     @staticmethod
@@ -1446,6 +1458,24 @@ class AgentResourceOfficer(_PluginBase):
         config = self._load_hdhive_daily_sign_config()
         return self._clean_text(config.get("cookie"))
 
+    def _sync_hdhive_refreshed_tokens(self) -> None:
+        if self._hdhive_service is None:
+            return
+        new_access = self._clean_text(self._hdhive_service.openapi_user_token)
+        new_refresh = self._clean_text(self._hdhive_service.openapi_refresh_token)
+        changed = False
+        if new_access and new_access != self._hdhive_openapi_user_token:
+            self._hdhive_openapi_user_token = new_access
+            changed = True
+        if new_refresh and new_refresh != self._hdhive_openapi_refresh_token:
+            self._hdhive_openapi_refresh_token = new_refresh
+            changed = True
+        if changed:
+            try:
+                self.update_config(self._build_config())
+            except Exception:
+                pass
+
     def _refresh_hdhive_checkin_cookie(self) -> Tuple[bool, str, str]:
         if not self._hdhive_checkin_auto_login:
             return False, "", "未启用影巢自动登录刷新 Cookie"
@@ -1479,6 +1509,7 @@ class AgentResourceOfficer(_PluginBase):
             is_gambler=final_gambler_mode,
             trigger=trigger,
         )
+        self._sync_hdhive_refreshed_tokens()
         if checkin_ok:
             final_result = {"success": True, "message": result.get("message") or "success", "data": result}
             self._record_hdhive_checkin_history(trigger=trigger, is_gambler=final_gambler_mode, result=final_result)
@@ -1488,7 +1519,7 @@ class AgentResourceOfficer(_PluginBase):
         checkin_status_code = self._safe_int(result.get("status_code"), 0) if isinstance(result, dict) else 0
         should_try_web_fallback = (
             self._is_hdhive_premium_limited(raw_message)
-            or checkin_status_code in (404, 405)
+            or checkin_status_code in (401, 404, 405)
             or "405 not allowed" in self._clean_text(raw_message).lower()
             or "<html" in self._clean_text(raw_message).lower()
         )
@@ -1669,6 +1700,7 @@ class AgentResourceOfficer(_PluginBase):
             "pansou_timeout": self._pansou_timeout,
             "hdhive_api_key": self._hdhive_api_key,
             "hdhive_base_url": self._hdhive_base_url,
+            "hdhive_resource_mode": self._hdhive_resource_mode,
             "hdhive_timeout": self._hdhive_timeout,
             "hdhive_default_path": self._hdhive_default_path,
             "hdhive_candidate_page_size": self._hdhive_candidate_page_size,
@@ -1682,6 +1714,8 @@ class AgentResourceOfficer(_PluginBase):
             "hdhive_checkin_auto_login": self._hdhive_checkin_auto_login,
             "hdhive_checkin_username": self._hdhive_checkin_username,
             "hdhive_checkin_password": self._hdhive_checkin_password,
+            "hdhive_openapi_user_token": self._hdhive_openapi_user_token,
+            "hdhive_openapi_refresh_token": self._hdhive_openapi_refresh_token,
             "p115_default_path": self._p115_default_path,
             "p115_client_type": self._p115_client_type,
             "p115_cookie": self._p115_cookie,
@@ -1728,6 +1762,30 @@ class AgentResourceOfficer(_PluginBase):
         if not hmac.compare_digest(actual, expected):
             return False, "API Token 无效"
         return True, ""
+
+    def _plugin_api_token(self) -> str:
+        return self._clean_text(getattr(settings, "API_TOKEN", "") if settings is not None else "")
+
+    def _p115_qrcode_page_url(self) -> str:
+        params = {
+            "client_type": P115TransferService.normalize_qrcode_client_type(self._p115_client_type),
+        }
+        token = self._plugin_api_token()
+        if token:
+            params["apikey"] = token
+        return f"/api/v1/plugin/AgentResourceOfficer/p115/qrcode/page?{urlencode(params)}"
+
+    @staticmethod
+    def _run_p115_with_timeout(func, *, timeout: int = 8):
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(func)
+        try:
+            return future.result(timeout=max(3, timeout))
+        except concurrent.futures.TimeoutError:
+            future.cancel()
+            return False, {}, f"115 请求超过 {max(3, timeout)} 秒未返回，请稍后重试"
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
 
     async def _request_payload(self, request: Request) -> Dict[str, Any]:
         if str(getattr(request, "method", "") or "").upper() == "GET":
@@ -1818,12 +1876,91 @@ class AgentResourceOfficer(_PluginBase):
                 api_key=self._hdhive_api_key,
                 base_url=self._hdhive_base_url,
                 timeout=self._hdhive_timeout,
+                openapi_user_token=self._hdhive_openapi_user_token,
+                openapi_refresh_token=self._hdhive_openapi_refresh_token,
             )
         else:
             self._hdhive_service.api_key = self._hdhive_api_key
             self._hdhive_service.base_url = self._hdhive_base_url
             self._hdhive_service.timeout = self._hdhive_timeout
+            self._hdhive_service.openapi_user_token = self._hdhive_openapi_user_token
+            self._hdhive_service.openapi_refresh_token = self._hdhive_openapi_refresh_token
         return self._hdhive_service
+
+    def _ensure_hdhive_browser(self) -> HDHiveBrowserService:
+        return HDHiveBrowserService(
+            base_url=self._hdhive_base_url,
+            cookie=self._clean_text(self._hdhive_checkin_cookie),
+            timeout=self._hdhive_timeout,
+        )
+
+    def _ensure_hdhive_resource_service(self):
+        """按 hdhive_resource_mode 返回影巢搜索/解锁服务（网页或 OpenAPI）。"""
+        if self._hdhive_resource_mode == "openapi":
+            return self._ensure_hdhive_service()
+        return self._ensure_hdhive_browser()
+
+    async def _hdhive_search_by_keyword_routed(
+        self,
+        keyword: str,
+        media_type: str = "auto",
+        year: str = "",
+        candidate_limit: int = 10,
+        result_limit: int = 12,
+    ) -> Tuple[bool, Dict[str, Any], str]:
+        """关键词搜索路由：openapi 模式走原生；否则用 OpenAPI 解析 TMDB 候选 + 网页方式搜每个候选。"""
+        if self._hdhive_resource_mode == "openapi":
+            return await self._ensure_hdhive_service().search_resources_by_keyword(
+                keyword=keyword,
+                media_type=media_type,
+                year=year,
+                candidate_limit=candidate_limit,
+                result_limit=result_limit,
+            )
+        oa = self._ensure_hdhive_service()
+        ok, cand_result, cand_msg = await oa.resolve_candidates_by_keyword(
+            keyword=keyword,
+            media_type=media_type,
+            year=year,
+            candidate_limit=candidate_limit,
+        )
+        if not ok:
+            r = dict(cand_result)
+            r["data"] = []
+            return False, r, cand_msg
+        candidates = cand_result.get("candidates") or []
+        provider = self._ensure_hdhive_resource_service()
+        merged: List[Dict[str, Any]] = []
+        seen: set = set()
+        for c in candidates:
+            cok, payload, _ = provider.search_resources(
+                media_type=c.get("media_type") or media_type,
+                tmdb_id=str(c.get("tmdb_id")),
+            )
+            if not cok:
+                continue
+            for res in (payload.get("data") or []):
+                slug = self._clean_text(res.get("slug"))
+                if not slug or slug in seen:
+                    continue
+                seen.add(slug)
+                ann = dict(res)
+                ann["matched_tmdb_id"] = c.get("tmdb_id")
+                ann["matched_title"] = c.get("title")
+                ann["matched_year"] = c.get("year")
+                merged.append(ann)
+        merged = merged[:result_limit]
+        msg = "success" if merged else "已解析 TMDB，但影巢暂无匹配资源"
+        result = {
+            "ok": bool(merged),
+            "message": msg,
+            "query": {"keyword": keyword, "media_type": media_type, "year": year},
+            "candidates": candidates,
+            "data": merged,
+            "meta": {"total": len(merged), "candidate_count": len(candidates)},
+            "source": "hdhive_browser",
+        }
+        return bool(merged), result, msg
 
     def _ensure_p115_service(self) -> P115TransferService:
         if self._p115_service is None:
@@ -1880,6 +2017,20 @@ class AgentResourceOfficer(_PluginBase):
 
     def get_api(self) -> List[Dict[str, Any]]:
         return [
+            {
+                "path": "/config/get",
+                "endpoint": self.api_config_get,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "设置页获取 Agent影视助手 当前配置",
+            },
+            {
+                "path": "/config/save",
+                "endpoint": self.api_config_save,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "设置页保存 Agent影视助手 当前配置",
+            },
             {
                 "path": "/quark/health",
                 "endpoint": self.api_quark_health,
@@ -1975,6 +2126,45 @@ class AgentResourceOfficer(_PluginBase):
                 "endpoint": self.api_p115_qrcode_check,
                 "methods": ["GET"],
                 "summary": "检查 Agent影视助手 的 115 扫码登录状态",
+            },
+            {
+                "path": "/p115/ui/health",
+                "endpoint": self.api_p115_ui_health,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "设置页检查 Agent影视助手 的 115 转存依赖状态",
+            },
+            {
+                "path": "/p115/ui/qrcode",
+                "endpoint": self.api_p115_ui_qrcode,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "设置页获取 Agent影视助手 的 115 扫码登录二维码",
+            },
+            {
+                "path": "/p115/ui/qrcode/check",
+                "endpoint": self.api_p115_ui_qrcode_check,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "设置页检查 Agent影视助手 的 115 扫码登录状态",
+            },
+            {
+                "path": "/p115/qrcode/page",
+                "endpoint": self.api_p115_qrcode_page,
+                "methods": ["GET"],
+                "summary": "打开 Agent影视助手 的 115 扫码登录网页",
+            },
+            {
+                "path": "/p115/qrcode/page/check",
+                "endpoint": self.api_p115_qrcode_page_check,
+                "methods": ["GET"],
+                "summary": "检查 Agent影视助手 的 115 扫码登录网页会话",
+            },
+            {
+                "path": "/p115/qrcode/page/refresh",
+                "endpoint": self.api_p115_qrcode_page_refresh,
+                "methods": ["GET"],
+                "summary": "就地重新生成 Agent影视助手 的 115 扫码登录二维码",
             },
             {
                 "path": "/p115/transfer",
@@ -2175,25 +2365,15 @@ class AgentResourceOfficer(_PluginBase):
             return "插件未启用"
         if not self._hdhive_api_key:
             return "影巢 API Key 未配置"
-        service = self._ensure_hdhive_service()
-        account_ok, account_result, account_message = service.fetch_me()
-        quota_ok, quota_result, _quota_message = service.fetch_quota()
-        usage_ok, usage_result, _usage_message = service.fetch_usage_today()
-
-        account = account_result.get("data") or {}
-        account_source = "hdhive_openapi"
-        if not account_ok and self._is_hdhive_premium_limited(account_message):
-            fallback_account = self._build_hdhive_account_snapshot(self._load_hdhive_daily_sign_user_info())
-            if fallback_account:
-                account = fallback_account
-                account_ok = True
-                account_source = "hdhivedailysign_snapshot"
+        # Settings/status pages must not synchronously call external services.
+        # If HDHive auth or network stalls, MoviePilot's plugin UI appears frozen.
+        account = self._build_hdhive_account_snapshot(self._load_hdhive_daily_sign_user_info())
+        account_ok = bool(account)
+        account_source = "hdhivedailysign_snapshot" if account_ok else "local_config"
         account_fields = self._extract_hdhive_account_fields(account)
-        quota = quota_result.get("data") or {}
-        usage = usage_result.get("data") or {}
 
         return (
-            f"影巢账号：{'可用' if account_ok else '异常'}"
+            f"影巢账号：{'网页快照可用' if account_ok else '未实时检测'}"
             f"\n资源入口：{'开启' if self._hdhive_resource_enabled else '关闭'}"
             f"\n单资源积分上限：{self._hdhive_max_unlock_points if self._hdhive_max_unlock_points > 0 else '不限制'}"
             f"\n签到入口：{'开启' if self._hdhive_checkin_enabled else '关闭'}"
@@ -2201,9 +2381,9 @@ class AgentResourceOfficer(_PluginBase):
             f"\n积分：{account_fields.get('points', '—')}"
             f"\nVIP：{'是' if account_fields.get('is_vip') else '否'}"
             f"\n累计签到：{account_fields.get('signin_days_total', '—')}"
-            f"\n今日剩余配额：{quota.get('endpoint_remaining', '—')}"
-            f"\n今日总调用：{usage.get('total_calls', '—')}"
-            f"\n账号来源：{'网页快照' if account_source == 'hdhivedailysign_snapshot' else 'OpenAPI'}"
+            f"\n今日剩余配额：—"
+            f"\n今日总调用：—"
+            f"\n账号来源：{'网页快照' if account_source == 'hdhivedailysign_snapshot' else '本地配置'}"
         )
 
     def get_page(self) -> List[dict]:
@@ -2222,9 +2402,6 @@ class AgentResourceOfficer(_PluginBase):
         feishu_state = "已启用" if feishu_health.get("enabled") else "未启用"
         feishu_running = "运行中" if feishu_health.get("running") else "未运行"
         hdhive_lines = [line.strip() for line in str(hdhive_summary or "").splitlines() if line.strip()]
-        hdhive_compact_lines = hdhive_lines[:4]
-        if len(hdhive_lines) >= 6:
-            hdhive_compact_lines.append(f"{hdhive_lines[4]} / {hdhive_lines[5]}")
         p115_cookie_message = cookie_state.get("message") or "当前会话可直接用于 115 直转"
 
         def text_line(text: str, css_class: str = "text-body-2 py-1") -> Dict[str, Any]:
@@ -2234,45 +2411,40 @@ class AgentResourceOfficer(_PluginBase):
                 "text": text,
             }
 
-        def status_card(title: str, subtitle: str, lines: List[str], color: str = "primary") -> Dict[str, Any]:
+        def status_card(
+            title: str,
+            subtitle: str,
+            lines: List[str],
+            color: str = "primary",
+            actions: Optional[List[Dict[str, Any]]] = None,
+        ) -> Dict[str, Any]:
+            content = [
+                {
+                    "component": "VCardTitle",
+                    "props": {"class": "text-subtitle-1 font-weight-bold pb-1"},
+                    "text": title,
+                },
+                {
+                    "component": "VCardSubtitle",
+                    "props": {"class": "text-body-2"},
+                    "text": subtitle,
+                },
+                {
+                    "component": "VCardText",
+                    "props": {"class": "py-2"},
+                    "content": [text_line(line, "text-body-2 py-0") for line in lines],
+                },
+            ]
+            if actions:
+                content.append({
+                    "component": "VCardActions",
+                    "props": {"class": "pt-0"},
+                    "content": actions,
+                })
             return {
                 "component": "VCard",
                 "props": {"variant": "tonal", "color": color, "class": "h-100"},
-                "content": [
-                    {
-                        "component": "VCardTitle",
-                        "props": {"class": "text-subtitle-1 font-weight-bold pb-1"},
-                        "text": title,
-                    },
-                    {
-                        "component": "VCardSubtitle",
-                        "props": {"class": "text-body-2"},
-                        "text": subtitle,
-                    },
-                    {
-                        "component": "VCardText",
-                        "props": {"class": "py-2"},
-                        "content": [text_line(line, "text-body-2 py-0") for line in lines],
-                    },
-                ],
-            }
-
-        def section_card(title: str, lines: List[str], compact: bool = False) -> Dict[str, Any]:
-            return {
-                "component": "VCard",
-                "props": {"flat": True, "border": True, "class": "h-100"},
-                "content": [
-                    {
-                        "component": "VCardTitle",
-                        "props": {"class": "text-subtitle-1 font-weight-bold pb-1" if compact else "text-subtitle-1 font-weight-bold"},
-                        "text": title,
-                    },
-                    {
-                        "component": "VCardText",
-                        "props": {"class": "py-2"} if compact else {},
-                        "content": [text_line(line, "text-body-2 py-0") for line in lines] if compact else [text_line(line) for line in lines],
-                    },
-                ],
+                "content": content,
             }
 
         return [
@@ -2293,8 +2465,7 @@ class AgentResourceOfficer(_PluginBase):
                                         hdhive_ready,
                                         [
                                             f"默认目录：{self._hdhive_default_path}",
-                                            "能力：搜索 / 解锁 / 签到",
-                                            "API：/hdhive/account /checkin /quota",
+                                            *(hdhive_lines[:2] or ["账号：未获取"]),
                                         ],
                                         "success" if self._hdhive_api_key else "warning",
                                     )
@@ -2311,8 +2482,22 @@ class AgentResourceOfficer(_PluginBase):
                                             f"默认目录：{self._p115_default_path}",
                                             f"登录方式：{p115_ready}",
                                             f"扫码客户端：{self._p115_client_type_title(self._p115_client_type)}",
+                                            f"Cookie：{p115_cookie_message}",
                                         ],
                                         "success" if p115_health_ok else "error",
+                                        [
+                                            {
+                                                "component": "VBtn",
+                                                "props": {
+                                                    "href": self._p115_qrcode_page_url(),
+                                                    "target": "_blank",
+                                                    "color": "primary",
+                                                    "variant": "tonal",
+                                                    "size": "small",
+                                                },
+                                                "text": "选择扫码途径",
+                                            }
+                                        ],
                                     )
                                 ],
                             },
@@ -2325,8 +2510,7 @@ class AgentResourceOfficer(_PluginBase):
                                         quark_ready,
                                         [
                                             f"默认目录：{self._quark_default_path}",
-                                            "能力：分享链接转存",
-                                            "入口：通用分享路由",
+                                            "分享转存：" + ("可用" if self._quark_cookie else "待配置"),
                                         ],
                                         "success" if self._quark_cookie else "warning",
                                     )
@@ -2341,117 +2525,10 @@ class AgentResourceOfficer(_PluginBase):
                                         f"{feishu_state}，长连接：{feishu_running}",
                                         [
                                             "模式：内置 Channel",
-                                            "健康检查：/feishu/health",
-                                            "建议：只保留一个飞书入口监听",
                                         ],
                                         "success" if feishu_health.get("running") else "secondary",
                                     )
                                 ],
-                            },
-                        ],
-                    },
-                    {
-                        "component": "VRow",
-                        "props": {"dense": True, "class": "mt-3"},
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    section_card(
-                                        "智能体入口",
-                                        [
-                                            "统一路由：/assistant/route",
-                                            "继续选择：/assistant/pick",
-                                            "工作流：/assistant/workflow",
-                                            "计划执行：/assistant/plan/execute",
-                                            "Agent Tool：搜索/选择、115 扫码、待任务查看/继续/取消、通用分享路由",
-                                        ],
-                                        compact=True,
-                                    )
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    section_card(
-                                        "账号与签到",
-                                        hdhive_compact_lines
-                                        + [
-                                            f"115 Cookie：{p115_cookie_message}",
-                                        ],
-                                        compact=True,
-                                    )
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
-                                "content": [
-                                    section_card(
-                                        "盘搜服务",
-                                        [
-                                            f"API 地址：{self._pansou_base_url}",
-                                            f"请求超时：{self._pansou_timeout} 秒",
-                                            "用法：发送“盘搜搜索 片名”“ps片名”或“1片名”。",
-                                            "说明：插件只负责调用 PanSou API，本机需要先运行 PanSou 服务。",
-                                        ],
-                                        compact=True,
-                                    )
-                                ],
-                            }
-                        ],
-                    },
-                    {
-                        "component": "VAlert",
-                        "props": {
-                            "type": "info",
-                            "variant": "tonal",
-                            "class": "mt-4 mb-1",
-                            "title": "统一资源入口",
-                        },
-                        "content": [
-                            text_line(
-                                "Agent影视助手支持四种接入模式：飞书直接发命令、外部智能体直连官方 MCP、外部智能体调用 skill/helper、MP 内置智能体调用 Agent Tool。",
-                                "text-body-2 mb-3",
-                            ),
-                            text_line(
-                                "不接外部智能体",
-                                "text-subtitle-2 font-weight-bold mb-2",
-                            ),
-                            {
-                                "component": "div",
-                                "props": {
-                                    "class": "pa-3 rounded text-body-2 mb-3",
-                                    "style": "white-space: pre-line; line-height: 1.7; background: rgba(255,255,255,.55);",
-                                },
-                                "text": (
-                                    "如果你只想直接用插件或飞书入口，不需要额外安装 skill。\n"
-                                    "直接使用这些命令即可：搜索 片名 / 盘搜搜索 片名 / 影巢搜索 片名 / 转存 片名 / 下载 片名 / 订阅 片名 / 115登录。\n"
-                                    "如果你同时装了 P115StrmHelper，它更适合 115 整理、STRM 和旧登录态复用；Agent影视助手负责资源搜索、转存编排和 115 直转。"
-                                ),
-                            },
-                            text_line(
-                                "接外部智能体",
-                                "text-subtitle-2 font-weight-bold mb-2",
-                            ),
-                            {
-                                "component": "div",
-                                "props": {
-                                    "class": "pa-3 rounded text-body-2 mb-3",
-                                    "style": "white-space: pre-line; line-height: 1.7; background: rgba(255,255,255,.55);",
-                                },
-                                "text": (
-                                    "快速开始主页：\n"
-                                    "https://github.com/liuyuexi1987/MoviePilot-Plugins\n\n"
-                                    "外部智能体接入文档：\n"
-                                    "https://github.com/liuyuexi1987/MoviePilot-Plugins/blob/main/docs/AGENT_RESOURCE_OFFICER_EXTERNAL_AGENTS.md\n\n"
-                                    "跨机器部署：\n"
-                                    "https://github.com/liuyuexi1987/MoviePilot-Plugins/blob/main/docs/AGENT_RESOURCE_OFFICER_REMOTE_DEPLOY.md\n\n"
-                                    "Skill 说明：\n"
-                                    "https://github.com/liuyuexi1987/MoviePilot-Plugins/blob/main/skills/agent-resource-officer/SKILL.md"
-                                ),
                             },
                         ],
                     },
@@ -2461,9 +2538,16 @@ class AgentResourceOfficer(_PluginBase):
 
     @staticmethod
     def get_render_mode() -> Tuple[str, Optional[str]]:
-        return "vuetify", None
+        return "vue", "dist/assets"
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        def text_line(text: str, css_class: str = "text-body-2 py-1") -> Dict[str, Any]:
+            return {
+                "component": "div",
+                "props": {"class": css_class},
+                "text": text,
+            }
+
         form = [
             {
                 "component": "VForm",
@@ -2634,6 +2718,27 @@ class AgentResourceOfficer(_PluginBase):
                             },
                             {
                                 "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VAlert",
+                                        "props": {
+                                            "type": "info",
+                                            "variant": "tonal",
+                                            "class": "mb-2",
+                                            "title": "115 扫码登录",
+                                        },
+                                        "content": [
+                                            text_line(
+                                                f"当前扫码客户端：{self._p115_client_type_title(self._p115_client_type)}。点击 115 Cookie 右侧二维码图标即可打开扫码面板；独立页面仍保留作为兜底。",
+                                                "text-body-2 mb-2",
+                                            ),
+                                        ],
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
                                 "props": {"cols": 12, "md": 3},
                                 "content": [
                                     {
@@ -2690,6 +2795,36 @@ class AgentResourceOfficer(_PluginBase):
                                             "label": "影巢 API Key",
                                             "rows": 2,
                                             "placeholder": "填写影巢 OpenAPI 的 API Key",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "hdhive_openapi_user_token",
+                                            "label": "影巢 OpenAPI 用户 Access Token",
+                                            "rows": 2,
+                                            "placeholder": "业务接口（资源、签到、账号等）需要的用户级 Bearer Token，通过 OAuth 获取后填入",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "hdhive_openapi_refresh_token",
+                                            "label": "影巢 OpenAPI Refresh Token（可选）",
+                                            "rows": 2,
+                                            "placeholder": "填入后令牌过期时可自动续期，无需手动更新",
                                         },
                                     }
                                 ],
@@ -3091,19 +3226,41 @@ class AgentResourceOfficer(_PluginBase):
                     },
                     {
                         "component": "VRow",
+                        "props": {"align": "center"},
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12},
+                                "props": {"cols": 12, "md": 10},
                                 "content": [
                                     {
-                                        "component": "VTextarea",
+                                        "component": "VTextField",
                                         "props": {
                                             "model": "p115_cookie",
-                                            "label": "115 扫码会话 Cookie（高级，可选）",
-                                            "rows": 3,
-                                            "placeholder": "推荐直接发“115登录”扫码；这里只接受 UID/CID/SEID/KID 这类扫码客户端 Cookie，普通网页版 Cookie 不建议粘贴到这里",
+                                            "label": "115 Cookie",
+                                            "type": "password",
+                                            "placeholder": "推荐点右侧二维码扫码获取；这里只接受 UID/CID/SEID/KID 这类扫码客户端 Cookie",
+                                            "hint": "点击右侧二维码图标打开扫码面板；普通网页版 Cookie 不建议粘贴到这里。",
+                                            "persistent-hint": True,
                                         },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 2, "class": "d-flex align-center"},
+                                "content": [
+                                    {
+                                        "component": "VBtn",
+                                        "props": {
+                                            "href": self._p115_qrcode_page_url(),
+                                            "target": "_blank",
+                                            "color": "primary",
+                                            "variant": "tonal",
+                                            "prepend-icon": "mdi-qrcode-scan",
+                                            "title": "扫码获取或更新 115 Cookie",
+                                            "block": True,
+                                        },
+                                        "text": "扫码登录",
                                     }
                                 ],
                             },
@@ -3301,6 +3458,21 @@ class AgentResourceOfficer(_PluginBase):
         ]
         return form, self._build_config()
 
+    async def api_config_get(self, request: Request):
+        return {"success": True, "message": "success", "data": self._build_config()}
+
+    async def api_config_save(self, request: Request):
+        body = await self._request_payload(request)
+        incoming = dict(body or {})
+        current = self._build_config()
+        merged = {**current, **incoming}
+        if not self._clean_text(incoming.get("p115_cookie")) and self._clean_text(current.get("p115_cookie")):
+            merged["p115_cookie"] = current.get("p115_cookie")
+        if not self._clean_text(incoming.get("p115_client_type")):
+            merged["p115_client_type"] = current.get("p115_client_type") or self._p115_client_type
+        config = self._apply_runtime_config(merged)
+        return {"success": True, "message": "配置已保存", "data": config}
+
     async def api_feishu_health(self, request: Request):
         ok, message = self._check_api_access(request)
         if not ok:
@@ -3380,6 +3552,8 @@ class AgentResourceOfficer(_PluginBase):
                 "plugin_version": self.plugin_version,
                 "enabled": self._enabled,
                 "hdhive_api_key_configured": bool(self._hdhive_api_key),
+                "hdhive_openapi_user_token_configured": bool(self._hdhive_openapi_user_token),
+                "hdhive_openapi_refresh_token_configured": bool(self._hdhive_openapi_refresh_token),
                 "hdhive_ping_ok": ping_ok,
                 "base_url": self._hdhive_base_url,
                 "default_target_path": self._hdhive_default_path,
@@ -3405,6 +3579,7 @@ class AgentResourceOfficer(_PluginBase):
 
         service = self._ensure_hdhive_service()
         account_ok, result, account_message = service.fetch_me()
+        self._sync_hdhive_refreshed_tokens()
         if not account_ok:
             if self._is_hdhive_premium_limited(account_message):
                 fallback_account = self._build_hdhive_account_snapshot(self._load_hdhive_daily_sign_user_info())
@@ -3449,6 +3624,7 @@ class AgentResourceOfficer(_PluginBase):
 
         service = self._ensure_hdhive_service()
         quota_ok, result, quota_message = service.fetch_quota()
+        self._sync_hdhive_refreshed_tokens()
         if not quota_ok:
             return {"success": False, "message": self._friendly_hdhive_error(quota_message, "配额"), "data": result}
         return {"success": True, "message": result.get("message") or "success", "data": result.get("data") or {}}
@@ -3462,6 +3638,7 @@ class AgentResourceOfficer(_PluginBase):
 
         service = self._ensure_hdhive_service()
         usage_ok, result, usage_message = service.fetch_usage_today()
+        self._sync_hdhive_refreshed_tokens()
         if not usage_ok:
             return {"success": False, "message": self._friendly_hdhive_error(usage_message, "今日用量"), "data": result}
         return {"success": True, "message": result.get("message") or "success", "data": result.get("data") or {}}
@@ -3475,6 +3652,7 @@ class AgentResourceOfficer(_PluginBase):
 
         service = self._ensure_hdhive_service()
         weekly_ok, result, weekly_message = service.fetch_weekly_free_quota()
+        self._sync_hdhive_refreshed_tokens()
         if not weekly_ok:
             return {"success": False, "message": self._friendly_hdhive_error(weekly_message, "每周免费额度"), "data": result}
         return {"success": True, "message": result.get("message") or "success", "data": result.get("data") or {}}
@@ -3493,7 +3671,8 @@ class AgentResourceOfficer(_PluginBase):
         media_type = self._clean_text(body.get("media_type") or body.get("type") or "movie").lower()
         tmdb_id = self._clean_text(body.get("tmdb_id"))
         service = self._ensure_hdhive_service()
-        search_ok, result, search_message = service.search_resources(media_type=media_type, tmdb_id=tmdb_id)
+        search_ok, result, search_message = self._ensure_hdhive_resource_service().search_resources(media_type=media_type, tmdb_id=tmdb_id)
+        self._sync_hdhive_refreshed_tokens()
         if not search_ok:
             return {"success": False, "message": search_message, "data": result}
         return {"success": True, "message": "success", "data": result}
@@ -3515,14 +3694,14 @@ class AgentResourceOfficer(_PluginBase):
         candidate_limit = self._safe_int(body.get("candidate_limit"), self._hdhive_candidate_page_size)
         result_limit = self._safe_int(body.get("limit"), 12)
 
-        service = self._ensure_hdhive_service()
-        search_ok, result, search_message = await service.search_resources_by_keyword(
+        search_ok, result, search_message = await self._hdhive_search_by_keyword_routed(
             keyword=keyword,
             media_type=media_type,
             year=year,
             candidate_limit=candidate_limit,
             result_limit=result_limit,
         )
+        self._sync_hdhive_refreshed_tokens()
         if not search_ok:
             return {"success": False, "message": search_message, "data": result}
         return {"success": True, "message": "success", "data": result}
@@ -3543,7 +3722,8 @@ class AgentResourceOfficer(_PluginBase):
         if not points_ok:
             return {"success": False, "message": points_message, "data": {"resource_guard": points_data}}
         service = self._ensure_hdhive_service()
-        unlock_ok, result, unlock_message = service.unlock_resource(slug)
+        unlock_ok, result, unlock_message = self._ensure_hdhive_resource_service().unlock_resource(slug)
+        self._sync_hdhive_refreshed_tokens()
         if not unlock_ok:
             return {"success": False, "message": unlock_message, "data": result}
         return {"success": True, "message": "success", "data": result}
@@ -7016,7 +7196,7 @@ class AgentResourceOfficer(_PluginBase):
         selected_preview: List[Dict[str, Any]] = []
         selected_summary: Dict[str, Any] = {}
         for candidate in candidates[:3]:
-            resource_ok, resource_result, resource_message = service.search_resources(
+            resource_ok, resource_result, resource_message = self._ensure_hdhive_resource_service().search_resources(
                 media_type=candidate.get("media_type") or media_type or "movie",
                 tmdb_id=str(candidate.get("tmdb_id") or ""),
             )
@@ -20318,7 +20498,7 @@ class AgentResourceOfficer(_PluginBase):
         if not points_ok:
             return False, {"resource_guard": points_data, "resource": resource or {}}, points_message
         service = self._ensure_hdhive_service()
-        unlock_ok, result, unlock_message = service.unlock_resource(slug)
+        unlock_ok, result, unlock_message = self._ensure_hdhive_resource_service().unlock_resource(slug)
         if not unlock_ok:
             return False, result, unlock_message
 
@@ -20529,7 +20709,7 @@ class AgentResourceOfficer(_PluginBase):
             if index <= 0 or index > len(candidates):
                 return "候选编号超出范围"
             candidate = dict(candidates[index - 1])
-            resource_ok, resource_result, resource_message = service.search_resources(
+            resource_ok, resource_result, resource_message = self._ensure_hdhive_resource_service().search_resources(
                 media_type=candidate.get("media_type") or session.get("media_type") or "movie",
                 tmdb_id=str(candidate.get("tmdb_id") or ""),
             )
@@ -21246,6 +21426,12 @@ class AgentResourceOfficer(_PluginBase):
         if not ok:
             return {"success": False, "message": message}
 
+        return self._p115_health_payload()
+
+    async def api_p115_ui_health(self, request: Request):
+        return self._p115_health_payload()
+
+    def _p115_health_payload(self) -> Dict[str, Any]:
         service = self._ensure_p115_service()
         health_ok, result, health_message = service.health()
         cookie_state = result.get("cookie_state") or {}
@@ -21276,10 +21462,22 @@ class AgentResourceOfficer(_PluginBase):
         if not self._enabled:
             return {"success": False, "message": "插件未启用"}
 
+        return self._p115_qrcode_payload(request)
+
+    async def api_p115_ui_qrcode(self, request: Request):
+        if not self._enabled:
+            return {"success": False, "message": "插件未启用"}
+        return self._p115_qrcode_payload(request)
+
+    def _p115_qrcode_payload(self, request: Request) -> Dict[str, Any]:
         client_type = P115TransferService.normalize_qrcode_client_type(
             request.query_params.get("client_type") or self._p115_client_type
         )
-        qr_ok, data, qr_message = self._ensure_p115_service().create_qrcode_login(client_type=client_type)
+        service = self._ensure_p115_service()
+        qr_ok, data, qr_message = self._run_p115_with_timeout(
+            lambda: service.create_qrcode_login(client_type=client_type),
+            timeout=8,
+        )
         if not qr_ok:
             return {"success": False, "message": qr_message}
         return {"success": True, "message": qr_message, "data": data}
@@ -21291,6 +21489,14 @@ class AgentResourceOfficer(_PluginBase):
         if not self._enabled:
             return {"success": False, "message": "插件未启用"}
 
+        return self._p115_qrcode_check_payload(request)
+
+    async def api_p115_ui_qrcode_check(self, request: Request):
+        if not self._enabled:
+            return {"success": False, "message": "插件未启用"}
+        return self._p115_qrcode_check_payload(request)
+
+    def _p115_qrcode_check_payload(self, request: Request) -> Dict[str, Any]:
         uid = self._clean_text(request.query_params.get("uid"))
         time_value = self._clean_text(request.query_params.get("time"))
         sign = self._clean_text(request.query_params.get("sign"))
@@ -21299,14 +21505,18 @@ class AgentResourceOfficer(_PluginBase):
         client_type = P115TransferService.normalize_qrcode_client_type(
             request.query_params.get("client_type") or self._p115_client_type
         )
-        qr_ok, data, qr_message = self._ensure_p115_service().check_qrcode_login(
-            uid=uid,
-            time_value=time_value,
-            sign=sign,
-            client_type=client_type,
+        service = self._ensure_p115_service()
+        qr_ok, data, qr_message = self._run_p115_with_timeout(
+            lambda: service.check_qrcode_login(
+                uid=uid,
+                time_value=time_value,
+                sign=sign,
+                client_type=client_type,
+            ),
+            timeout=6,
         )
         if qr_ok and (data.get("status") == "success"):
-            cookie = self._clean_text(data.pop("cookie"))
+            cookie = self._clean_text(data.get("cookie"))
             if cookie:
                 self._p115_cookie = cookie
                 self._p115_client_type = client_type
@@ -21320,6 +21530,231 @@ class AgentResourceOfficer(_PluginBase):
         if not qr_ok:
             return {"success": False, "message": qr_message, "data": data}
         return {"success": True, "message": qr_message, "data": data}
+
+    async def api_p115_qrcode_page(self, request: Request):
+        if not self._enabled:
+            return HTMLResponse(
+                "<!doctype html><meta charset=\"utf-8\"><title>115 扫码登录</title>"
+                "<body style=\"font-family:sans-serif;padding:32px;color:#991b1b;\">插件未启用</body>",
+                status_code=400,
+            )
+
+        client_type = P115TransferService.normalize_qrcode_client_type(
+            request.query_params.get("client_type") or self._p115_client_type
+        )
+        apikey = self._extract_apikey(request)
+        client_items = self._p115_client_type_items()
+        html = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>115 扫码登录 - Agent影视助手</title>
+  <style>
+    :root {{ color-scheme: light; --bg:#f6f7fb; --card:#fff; --ink:#111827; --muted:#6b7280; --ok:#047857; --warn:#b45309; --bad:#b91c1c; }}
+    body {{ margin:0; min-height:100vh; display:grid; place-items:center; background:linear-gradient(135deg,#eef2ff,#f8fafc 45%,#ecfeff); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--ink); }}
+    main {{ width:min(92vw,520px); background:var(--card); border:1px solid rgba(15,23,42,.08); border-radius:24px; box-shadow:0 24px 80px rgba(15,23,42,.14); padding:28px; }}
+    h1 {{ margin:0 0 8px; font-size:24px; }}
+    p {{ margin:8px 0; color:var(--muted); line-height:1.6; }}
+    .choices {{ display:grid; gap:10px; margin-top:18px; }}
+    .choice {{ width:100%; border:1px solid #dbe3ef; border-radius:14px; padding:12px 14px; color:#0f172a; background:#fff; font-weight:700; cursor:pointer; }}
+    .choice.primary {{ color:white; background:#111827; border-color:#111827; }}
+    .qr {{ margin:22px auto 14px; width:280px; height:280px; display:none; place-items:center; border-radius:20px; background:#f9fafb; border:1px dashed #cbd5e1; overflow:hidden; }}
+    .qr img {{ width:100%; height:100%; object-fit:contain; }}
+    .status {{ margin-top:16px; padding:12px 14px; border-radius:14px; background:#f3f4f6; color:var(--muted); font-weight:600; }}
+    .ok {{ color:var(--ok); }} .warn {{ color:var(--warn); }} .bad {{ color:var(--bad); }}
+    button {{ width:100%; margin-top:16px; border:0; border-radius:14px; padding:13px 16px; color:white; background:#111827; font-weight:700; cursor:pointer; }}
+    button:disabled {{ opacity:.55; cursor:not-allowed; }}
+    code {{ background:#f3f4f6; border-radius:6px; padding:2px 6px; }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>115 扫码登录</h1>
+    <p>先选择扫码途径。页面会按 115 插件同款流程获取二维码，并使用 <code>uid/time/sign</code> 轮询登录状态。</p>
+    <div class="choices" id="choices"></div>
+    <div class="qr" id="qr"><img alt="115 登录二维码" src=""></div>
+    <div class="status warn" id="status">请选择扫码途径</div>
+    <button id="refresh" type="button" disabled>重新生成二维码</button>
+    <p>登录成功后，Cookie 会自动保存到 Agent影视助手 的 115 独立会话配置。</p>
+  </main>
+  <script>
+    const clientTypes = {json.dumps(client_items, ensure_ascii=False)};
+    const defaultClientType = {json.dumps(client_type)};
+    const apiKey = {json.dumps(apikey)};
+    let timer = null;
+    let qrState = null;
+    let activeClientType = defaultClientType;
+
+    function authParams(params) {{
+      if (apiKey) params.set("apikey", apiKey);
+      return params;
+    }}
+
+    function setBusy(busy) {{
+      document.querySelectorAll("button").forEach((btn) => btn.disabled = busy);
+      if (!busy) document.getElementById("refresh").disabled = !qrState;
+    }}
+
+    function renderChoices() {{
+      const wrap = document.getElementById("choices");
+      wrap.innerHTML = "";
+      clientTypes.forEach((item) => {{
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "choice" + (item.value === defaultClientType ? " primary" : "");
+        btn.textContent = item.title || item.value;
+        btn.addEventListener("click", () => startLogin(item.value));
+        wrap.appendChild(btn);
+      }});
+    }}
+
+    document.getElementById("refresh").addEventListener("click", async () => {{
+      await startLogin(activeClientType);
+    }});
+
+    async function startLogin(clientType) {{
+      if (timer) clearInterval(timer);
+      activeClientType = clientType || defaultClientType;
+      qrState = null;
+      setBusy(true);
+      setStatus("正在生成二维码…", "warn");
+      try {{
+        const params = authParams(new URLSearchParams({{ client_type: activeClientType }}));
+        const resp = await fetch("page/refresh?" + params.toString(), {{ credentials: "same-origin" }});
+        const json = await resp.json();
+        const d = unwrapJson(json);
+        qrState = {{
+          uid: d.uid || "",
+          time: d.time || "",
+          sign: d.sign || "",
+          client_type: d.client_type || activeClientType,
+        }};
+        if (!qrState.uid || !qrState.time || !qrState.sign) throw new Error("二维码参数不完整");
+        if (d.qrcode) {{
+          document.querySelector("#qr img").src = d.qrcode;
+          document.getElementById("qr").style.display = "grid";
+        }}
+        setStatus("请使用 115 App 扫码", "warn");
+        timer = setInterval(checkLogin, 2500);
+      }} catch (err) {{
+        setStatus(err.message || "获取二维码失败", "bad");
+      }} finally {{
+        setBusy(false);
+      }}
+    }}
+
+    function setStatus(text, cls = "") {{
+      const el = document.getElementById("status");
+      el.className = "status " + cls;
+      el.textContent = text;
+    }}
+
+    function unwrapJson(data) {{
+      if (!data || data.success === false) throw new Error((data && data.message) || "请求失败");
+      const payload = data.data || data;
+      if (payload && payload.success === false) throw new Error(payload.message || data.message || "请求失败");
+      return (payload && payload.data) || payload || {{}};
+    }}
+
+    async function requestJson(url) {{
+      const response = await fetch(url, {{ credentials: "same-origin" }});
+      const data = await response.json();
+      return unwrapJson(data);
+    }}
+
+    async function checkLogin() {{
+      if (!qrState) return;
+      const params = authParams(new URLSearchParams(qrState));
+      try {{
+        const data = await requestJson("page/check?" + params.toString());
+        if (data.status === "waiting") return setStatus("等待扫码...", "warn");
+        if (data.status === "scanned") return setStatus("已扫码，请在 115 App 确认登录", "warn");
+        if (data.status === "expired") {{
+          clearInterval(timer);
+          return setStatus("二维码已过期，请点“重新生成二维码”", "bad");
+        }}
+        if (data.status === "success") {{
+          clearInterval(timer);
+          return setStatus("登录成功，Cookie 已保存。可以关闭本页。", "ok");
+        }}
+        setStatus(data.status || "未知状态", "warn");
+      }} catch (err) {{
+        clearInterval(timer);
+        setStatus(err.message || String(err) || "检查登录状态失败，请重新生成二维码", "bad");
+      }}
+    }}
+
+    renderChoices();
+  </script>
+</body>
+</html>"""
+        return HTMLResponse(html, headers={"Cache-Control": "no-store, max-age=0"})
+
+    async def api_p115_qrcode_page_check(self, request: Request):
+        session_id = self._clean_text(request.query_params.get("session"))
+        session = self._load_session(session_id) if session_id else None
+        uid = self._clean_text(request.query_params.get("uid") or (session or {}).get("uid"))
+        time_value = self._clean_text(request.query_params.get("time") or (session or {}).get("time"))
+        sign = self._clean_text(request.query_params.get("sign") or (session or {}).get("sign"))
+        if not uid or not time_value or not sign:
+            return {"success": True, "message": "扫码会话不存在或已失效", "data": {"status": "expired"}}
+        client_type = P115TransferService.normalize_qrcode_client_type(
+            request.query_params.get("client_type") or (session or {}).get("client_type") or self._p115_client_type
+        )
+        service = self._ensure_p115_service()
+        qr_ok, data, qr_message = self._run_p115_with_timeout(
+            lambda: service.check_qrcode_login(
+                uid=uid,
+                time_value=time_value,
+                sign=sign,
+                client_type=client_type,
+            ),
+            timeout=6,
+        )
+        if qr_ok and data.get("status") == "success":
+            cookie = self._clean_text(data.pop("cookie"))
+            if cookie:
+                self._p115_cookie = cookie
+                self._p115_client_type = client_type
+                self._apply_runtime_config({
+                    "p115_cookie": cookie,
+                    "p115_client_type": client_type,
+                })
+                data["cookie_saved"] = True
+                data["cookie_mode"] = "client_cookie"
+                data["status_summary"] = self._format_p115_status_summary(title="115 登录完成")
+        if not qr_ok:
+            if self._clean_text(data.get("status")) == "expired" or "过期" in self._clean_text(qr_message):
+                return {"success": True, "message": qr_message, "data": {"status": "expired"}}
+            return {"success": False, "message": qr_message, "data": data}
+        return {"success": True, "message": qr_message, "data": data}
+
+    async def api_p115_qrcode_page_refresh(self, request: Request):
+        client_type = P115TransferService.normalize_qrcode_client_type(
+            request.query_params.get("client_type")
+            or self._p115_client_type
+        )
+        service = self._ensure_p115_service()
+        qr_ok, data, qr_message = self._run_p115_with_timeout(
+            lambda: service.create_qrcode_login(client_type=client_type),
+            timeout=8,
+        )
+        if not qr_ok:
+            return {"success": False, "message": qr_message}
+        return {
+            "success": True,
+            "message": qr_message,
+            "data": {
+                "qrcode": data.get("qrcode"),
+                "uid": data.get("uid"),
+                "time": data.get("time"),
+                "sign": data.get("sign"),
+                "tips": data.get("tips") or "请使用115客户端扫描二维码登录",
+                "client_type": data.get("client_type") or client_type,
+                "expires_at": int(time.time()) + 300,
+            },
+        }
 
     async def api_p115_transfer(self, request: Request):
         body = await request.json()
@@ -23525,7 +23960,7 @@ class AgentResourceOfficer(_PluginBase):
                     hdhive_candidates = (hdhive_result or {}).get("candidates") or []
                     chosen_candidate = self._pick_cloud_hdhive_candidate(keyword, hdhive_candidates, year=year)
                     if hdhive_ok and chosen_candidate:
-                        resource_ok, resource_result, _resource_message = service.search_resources(
+                        resource_ok, resource_result, _resource_message = self._ensure_hdhive_resource_service().search_resources(
                             media_type=chosen_candidate.get("media_type") or media_type or "auto",
                             tmdb_id=str(chosen_candidate.get("tmdb_id") or ""),
                         )
@@ -23606,7 +24041,7 @@ class AgentResourceOfficer(_PluginBase):
                     hdhive_candidates = (hdhive_result or {}).get("candidates") or []
                     chosen_candidate = self._pick_cloud_hdhive_candidate(keyword, hdhive_candidates, year=year)
                     if hdhive_ok and chosen_candidate:
-                        resource_ok, resource_result, _resource_message = service.search_resources(
+                        resource_ok, resource_result, _resource_message = self._ensure_hdhive_resource_service().search_resources(
                             media_type=chosen_candidate.get("media_type") or media_type or "auto",
                             tmdb_id=str(chosen_candidate.get("tmdb_id") or ""),
                         )
@@ -26392,7 +26827,7 @@ class AgentResourceOfficer(_PluginBase):
                 if index > len(candidates):
                     return {"success": False, "message": f"序号超出范围，请输入 1 到 {len(candidates)} 之间的数字。"}
                 candidate = dict(candidates[index - 1])
-                resource_ok, resource_result, resource_message = service.search_resources(
+                resource_ok, resource_result, resource_message = self._ensure_hdhive_resource_service().search_resources(
                     media_type=candidate.get("media_type") or state.get("media_type") or "movie",
                     tmdb_id=str(candidate.get("tmdb_id") or ""),
                 )
@@ -27337,7 +27772,7 @@ class AgentResourceOfficer(_PluginBase):
             if index > len(candidates):
                 return {"success": False, "message": "候选编号超出范围"}
             candidate = dict(candidates[index - 1])
-            resource_ok, resource_result, resource_message = service.search_resources(
+            resource_ok, resource_result, resource_message = self._ensure_hdhive_resource_service().search_resources(
                 media_type=candidate.get("media_type") or session.get("media_type") or "movie",
                 tmdb_id=str(candidate.get("tmdb_id") or ""),
             )
