@@ -244,3 +244,72 @@ class HDHiveBrowserService:
         return PlaywrightHelper().action(
             url, callback=_callback, cookies=self.cookie, timeout=self.timeout
         )
+
+    # ----- 与 HDHiveOpenApiService 对齐的兼容接口（返回 (ok, result, message) 三元组) -----
+
+    @staticmethod
+    def _norm_media_type(media_type: Any) -> str:
+        mt = str(media_type or "").strip().lower()
+        if mt in ("movie", "电影"):
+            return "movie"
+        if mt in ("tv", "电视剧"):
+            return "tv"
+        return mt
+
+    def search_resources(self, media_type: Any, tmdb_id: Any) -> tuple:
+        """与 HDHiveOpenApiService.search_resources 同签名/同返回结构（网页方式）。"""
+        mt = self._norm_media_type(media_type)
+        tid = str(tmdb_id or "").strip()
+        query = {"media_type": mt, "tmdb_id": tid}
+        if mt not in ("movie", "tv"):
+            return False, {"ok": False, "message": "媒体类型必须是 movie 或 tv", "query": query, "data": []}, "媒体类型必须是 movie 或 tv"
+        if not tid:
+            return False, {"ok": False, "message": "TMDB ID 不能为空", "query": query, "data": []}, "TMDB ID 不能为空"
+        if not self.is_ready():
+            return False, {"ok": False, "message": "影巢网页 Cookie 未配置", "query": query, "data": []}, "影巢网页 Cookie 未配置"
+        try:
+            items = self.search(mt, tid)
+        except Exception as exc:
+            return False, {"ok": False, "message": str(exc), "query": query, "data": []}, f"影巢网页搜索失败: {exc}"
+        data = [
+            {
+                "slug": it.get("slug", ""),
+                "title": it.get("title", ""),
+                "name": it.get("title", ""),
+                "unlock_points": it.get("unlock_points"),
+                "size": it.get("size", ""),
+                "resolution": it.get("resolution", ""),
+                "is_free": it.get("is_free", False),
+                "user": it.get("user", ""),
+                "posted_at": it.get("posted_at", ""),
+                "tags": it.get("tags", []),
+                "source": "hdhive_browser",
+            }
+            for it in items
+        ]
+        msg = "success" if data else "影巢网页方式未找到资源"
+        result = {
+            "ok": bool(data),
+            "message": msg,
+            "query": query,
+            "data": data,
+            "meta": {"total": len(data)},
+            "source": "hdhive_browser",
+        }
+        return bool(data), result, msg
+
+    def unlock_resource(self, slug: str) -> tuple:
+        """与 HDHiveOpenApiService.unlock_resource 同签名/同返回结构（网页方式）。"""
+        slug = (slug or "").strip()
+        if not slug:
+            return False, {"ok": False, "message": "slug 不能为空", "slug": "", "data": {}}, "slug 不能为空"
+        if not self.is_ready():
+            return False, {"ok": False, "message": "影巢网页 Cookie 未配置", "slug": slug, "data": {}}, "影巢网页 Cookie 未配置"
+        try:
+            res = self.unlock(slug)
+        except Exception as exc:
+            return False, {"ok": False, "message": str(exc), "slug": slug, "data": {}}, f"影巢网页解锁失败: {exc}"
+        link = (res.get("url") or "").strip()
+        data = {"full_url": link, "url": link, "pan_type": "115"}
+        msg = "success" if link else "影巢网页方式解锁失败"
+        return bool(link), {"ok": bool(link), "message": msg, "slug": slug, "data": data, "source": "hdhive_browser"}, msg
