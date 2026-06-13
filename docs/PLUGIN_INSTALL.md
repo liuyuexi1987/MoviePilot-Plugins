@@ -176,7 +176,7 @@ MCP 地址：http://你的MP地址:3000/api/v1/mcp
 
 如果你只是普通用户，到这里就够了。
 
-资源主线：`Agent影视助手 / AgentResourceOfficer 0.2.73`
+资源主线：`Agent影视助手 / AgentResourceOfficer 0.2.74`
 
 当前已验证上游 MoviePilot：`v2.11.4`
 

@@ -13,13 +13,40 @@
 ## 当前核心版本
 
 - `AIRecognizerEnhancer`: `0.1.12`
-- `AgentResourceOfficer`: `0.2.73`
+- `AgentResourceOfficer`: `0.3.0`
 - `FeishuCommandBridgeLong`: `0.5.26`
 - `HdhiveOpenApi`: `0.3.0`
 - `QuarkShareSaver`: `0.1.0`
 
 ## 近期基础设施更新
 
+- `AgentResourceOfficer 0.3.0`：精简 Agent/MCP 暴露工具集，仅保留 12 个业务能力工具，移除 ARO 自建计划、会话和自描述脚手架噪声；保留飞书与 HTTP 端点。
+- `AgentResourceOfficer 0.2.99`：修复飞书/助手 PT 搜索入口因可选 SubscribeHelper 路径变更导致整组 MoviePilot 搜索依赖被误判缺失的问题。
+- `AgentResourceOfficer 0.2.98`：修复影巢网页登录 Cookie 只作为请求头注入导致详情页仍被重定向登录的问题，网页搜索/解锁会写入 Playwright context 后重新打开目标页。
+- `AgentResourceOfficer 0.2.97`：将影巢网页搜索/解锁的浏览器动作最小超时提升到 60 秒，降低详情页加载较慢时误判无资源的概率。
+- `AgentResourceOfficer 0.2.96`：修复影巢账号密码自动刷新 Cookie 读取过早导致保存为空的问题，登录后等待认证 Cookie 落盘并保存 refresh_token、hdh_uid 等完整网页认证字段。
+- `AgentResourceOfficer 0.2.95`：影巢账号密码自动刷新 Cookie 的网页登录兜底改用 MoviePilot 官方 PlaywrightHelper/CloakBrowser，避免裸 Playwright 在容器内查找缺失 chromium_headless_shell。
+- `AgentResourceOfficer 0.2.94`：影巢网页搜索/解锁在 Cookie 缺失或失效时复用已配置的影巢账号密码自动刷新 Cookie，并在刷新后自动重试一次资源查询或解锁。
+- `AgentResourceOfficer 0.2.93`：修复影巢网页方式在 MoviePilot 异步插件请求中调用同步 PlaywrightHelper 导致 `Playwright Sync API inside the asyncio loop` 的端到端失败问题，浏览器动作改为在线程中执行。
+- `AgentResourceOfficer 0.2.92`：重排 Vue 设置页信息架构并优化布局——按使用权重调整顺序为「基础设置 → MP/PT 策略 → 115 扫码 → 影巢资源 → 影巢签到 → 盘搜 → 飞书入口」，MP/PT 提到最前；影巢资源与签到拆成两张卡片，卡片标题加状态 chip 与副标题；短字段收窄并支持响应式一行多列、移除大段蓝色 Alert；顶部新增快速开始引导与主页文档链接；移除「完整配置 JSON」面板（全部字段已在表单中呈现）。Cookie/Token/Secret/Password 默认隐藏、单行、带查看/复制。
+- `AgentResourceOfficer 0.2.91`：优化 Vue 设置页高级区视觉，将影巢、盘搜、MP/PT 改为统一卡片布局，影巢 Cookie 默认隐藏为单行输入并支持查看/复制。
+- `AgentResourceOfficer 0.2.90`：补全 Vue 设置页高级配置，将影巢、盘搜、MP/PT 拆成三块，并恢复旧设置页中的影巢 OpenAPI、签到、积分上限、盘搜超时、MP 评分策略等字段。
+- `AgentResourceOfficer 0.2.89`：修复 Vue 设置页扫码成功后关闭配置丢失的问题，新增设置页配置读取/保存接口，扫码成功自动持久化 115 Cookie，并防止旧空配置覆盖已保存 Cookie。
+- `AgentResourceOfficer 0.2.88`：修复 115 扫码弹窗刷新二维码时重复请求和旧轮询互相抢状态导致一直转圈的问题，新增前端请求序号、并发锁和超时兜底。
+- `AgentResourceOfficer 0.2.87`：修复 Vue 设置页 115 扫码弹窗请求被 apikey 鉴权拦截的问题，新增 bear 鉴权的设置页专用扫码接口。
+- `AgentResourceOfficer 0.2.86`：切换为 Vue 自定义配置页，在 115 Cookie 行内提供 P115StrmHelper 同款扫码登录弹窗，不再跳转新网页。
+- `AgentResourceOfficer 0.2.85`：修复 115 Cookie 旁扫码入口显示成灰色圆点的问题，改为明确的“扫码登录”按钮。
+- `AgentResourceOfficer 0.2.84`：优化 115 扫码入口：参考 P115StrmHelper 将入口收敛到 Cookie 行二维码按钮，并保留独立扫码页兜底；受 MoviePilot 通用表单限制，真正内嵌弹窗需后续改自定义前端。
+- `AgentResourceOfficer 0.2.83`：修复 MoviePilot 插件页卡死：状态页不再同步请求影巢外部接口，115 扫码生成与检查增加硬超时，并对齐 `p115client` 依赖版本，避免依赖冲突触发插件重载。
+- `AgentResourceOfficer 0.2.82`：重做 115 扫码页为 P115StrmHelper 同款 `uid/time/sign` 流程；先选择扫码途径再生成二维码，重新生成不再依赖页面 session。
+- `AgentResourceOfficer 0.2.81`：修复 115 扫码二维码页面「重新生成二维码」按钮会触发整页导航导致 MoviePilot 不可访问的问题，改为就地 fetch JSON 接口原位刷新二维码和会话。
+- `AgentResourceOfficer 0.2.80`：收敛 115 扫码 UI；设置页不再内嵌大二维码，状态页只保留状态和扫码入口，并修复二维码过期后重新生成卡死的问题。
+- `AgentResourceOfficer 0.2.79`：115 扫码设置页自动携带 MoviePilot API Token；内嵌二维码与登录状态轮询无需用户手动拼接 token。
+- `AgentResourceOfficer 0.2.78`：115 扫码登录改为设置页内嵌二维码；扫码页自动创建短期会话并轮询状态，无需手填 API Token，扫码成功后自动保存 Cookie。
+- `AgentResourceOfficer 0.2.77`：改进 115 扫码登录设置页 UX；替换纯文本 URL 为结构化可操作卡片（状态、路径、说明），扫码网页未授权时显示友好引导页。
+- `AgentResourceOfficer 0.2.76`：新增 115 扫码登录原生网页；打开 `/p115/qrcode/page` 后自动生成二维码并轮询登录状态，成功后保存 115 Cookie，避免依赖外部智能体传图。
+- `AgentResourceOfficer 0.2.75`：插件详情页新增 115 扫码登录原生卡片；直接在插件页面展示二维码 API 端点与扫码指引，无需通过外部智能体即可在 MoviePilot 内完成 115 App 扫码登录。
+- `AgentResourceOfficer 0.2.74`：适配影巢 OpenAPI 新鉴权规则；业务接口支持用户级 Bearer Token 与 Refresh Token 自动续期，并保留签到网页兜底链路。
 - `AgentResourceOfficer 0.2.73`：对齐并验证 `MoviePilot v2.11.4`；新增 `scripts/check-moviepilot-upstream-compat.py` 上游兼容检查，把最新已验证的 MoviePilot 版本暴露到 `assistant/selfcheck`，并纳入 `pre-release-check.sh` 发布前检查。
 - `AgentResourceOfficer 0.2.72`：修复 PT 订阅下载保存路径；创建或复用订阅时同步写入 Agent影视助手 的 `PT 下载保存路径`，避免订阅刷新自动推下载时落回 MoviePilot/qB 默认目录。云盘 115/夸克转存默认目录不变，仍按各自网盘目录配置执行。
 - `AgentResourceOfficer 0.2.71`：新增流媒体推荐能力；聚合 Netflix、Disney+、Apple TV+、Prime Video 四大平台，基于 TMDB discover 支持本月上新、近期热门电影/剧集等显式前缀推荐，结果页为只读列表，不扩张主线命令面。

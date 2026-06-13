@@ -3,4 +3,12 @@ __pycache__/
 *.pyo
 *.DS_Store
 dist/
+!AgentResourceOfficer/dist/
+!AgentResourceOfficer/dist/**
+!plugins/agentresourceofficer/dist/
+!plugins/agentresourceofficer/dist/**
+!plugins.v2/agentresourceofficer/dist/
+!plugins.v2/agentresourceofficer/dist/**
 SESSION_HANDOFF_*.md
+node_modules/
+.codex/

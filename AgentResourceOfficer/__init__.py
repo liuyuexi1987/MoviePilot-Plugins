@@ -128,7 +128,7 @@ class AgentResourceOfficer(_PluginBase):
     plugin_name = "Agent影视助手"
     plugin_desc = "龙虾agent稳定控制 MP：飞书入口、盘搜/影巢搜索、115/夸克转存、智能评分推荐。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png"
-    plugin_version = "0.2.92"
+    plugin_version = "0.3.0"
     moviepilot_tested_version = "v2.11.4"
     moviepilot_tested_release_url = "https://github.com/jxxghp/MoviePilot/releases/tag/v2.11.4"
     request_templates_schema_version = "request_templates.v1"
@@ -1259,34 +1259,19 @@ class AgentResourceOfficer(_PluginBase):
         return self._enabled
 
     def get_agent_tools(self) -> List[type]:
+        # 精简对 MoviePilot Agent / MCP 暴露的工具集：只保留“能干活”的业务能力工具，
+        # 移除 ARO 自建的 dry-run 计划协议、会话管理与自描述/自检/帮助类脚手架
+        # （这些在 MP 官方 Agent + MCP tools/list 下属于冗余噪声；对应内部方法与
+        # 飞书/HTTP 端点不受影响，仅不再注册进 MP 工具系统）。
         return [
-            AssistantCapabilitiesTool,
-            AssistantExecuteActionTool,
-            AssistantExecuteActionsTool,
-            AssistantExecutePlanTool,
-            AssistantPlansTool,
-            AssistantPlansClearTool,
-            AssistantRecoverTool,
-            AssistantPulseTool,
-            AssistantStartupTool,
-            AssistantMaintainTool,
-            AssistantToolboxTool,
-            AssistantRequestTemplatesTool,
-            AssistantSelfcheckTool,
-            AssistantReadinessTool,
-            FeishuChannelHealthTool,
-            AssistantHistoryTool,
-            AssistantHelpTool,
-            AssistantRouteTool,
-            AssistantPickTool,
-            AssistantWorkflowTool,
-            AssistantSessionsTool,
-            AssistantSessionStateTool,
-            AssistantSessionClearTool,
-            AssistantSessionsClearTool,
-            HDHiveSearchSessionTool,
-            HDHiveSessionPickTool,
-            ShareRouteTool,
+            # 统一入口与核心业务能力
+            AssistantRouteTool,        # smart_entry：影巢/盘搜/115登录/直接转存
+            AssistantPickTool,         # smart_pick：续接 smart_entry 选择/翻页/详情
+            AssistantWorkflowTool,     # run_workflow：MP 搜索/下载/订阅/推荐/盘搜转存/影巢解锁
+            ShareRouteTool,            # 转存 115/夸克分享链接
+            HDHiveSearchSessionTool,   # 影巢搜索
+            HDHiveSessionPickTool,     # 影巢选择/解锁
+            # 115 登录与转存任务
             P115QRCodeStartTool,
             P115QRCodeCheckTool,
             P115StatusTool,
@@ -1892,7 +1877,18 @@ class AgentResourceOfficer(_PluginBase):
             base_url=self._hdhive_base_url,
             cookie=self._clean_text(self._hdhive_checkin_cookie),
             timeout=self._hdhive_timeout,
+            cookie_refresh_callback=self._refresh_hdhive_browser_cookie,
         )
+
+    def _refresh_hdhive_browser_cookie(self) -> str:
+        if not (self._hdhive_checkin_auto_login and self._hdhive_checkin_username and self._hdhive_checkin_password):
+            return ""
+        login_ok, cookie, message = self._refresh_hdhive_checkin_cookie()
+        if login_ok and cookie:
+            logger.info(f"[Agent影视助手] 影巢网页资源 Cookie 自动刷新成功：{message}")
+            return cookie
+        logger.warning(f"[Agent影视助手] 影巢网页资源 Cookie 自动刷新失败：{message}")
+        return ""
 
     def _ensure_hdhive_resource_service(self):
         """按 hdhive_resource_mode 返回影巢搜索/解锁服务（网页或 OpenAPI）。"""

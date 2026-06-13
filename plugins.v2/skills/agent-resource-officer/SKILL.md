@@ -247,33 +247,35 @@ When constructing a `盘搜搜索` command from a previous search result title t
 
 When a user says `更新 <片名>`, `更新检查 <片名>`, `查更新 <片名>`, `检查 <片名>`, or a glued form like `检查大君夫人`, route that text directly first. The plugin will redirect these to search semantics. Do not clear the session first, do not guess that the user meant HDHive candidate search, and do not replace it with a generic search flow. `检查115登录` remains a login-check command, not a search command.
 
-When a user says `刷新影巢Cookie`, do not route that phrase into AgentResourceOfficer. Treat it as a host-side repair action and run:
+Cookie refresh and repair commands are part of the AgentResourceOfficer helper surface. Treat them as ARO built-in repair commands, not as a separate "host-side repair" path.
+
+When a user says `刷新影巢Cookie`, run:
 
 ```bash
 python3 scripts/aro_request.py hdhive-cookie-refresh
 ```
 
-This command exports the current HDHive webpage cookie from the local browser, writes it back into MoviePilot and AgentResourceOfficer, and restarts `moviepilot-v2`.
+This ARO repair command exports the current HDHive webpage cookie from the local browser, writes it back into MoviePilot and AgentResourceOfficer, and restarts `moviepilot-v2`.
 
-When a user says `修复影巢签到`, do not route that phrase directly. Run:
+When a user says `修复影巢签到`, run:
 
 ```bash
 python3 scripts/aro_request.py hdhive-checkin-repair
 ```
 
-This command refreshes the HDHive webpage cookie from the local browser export tool, restarts `moviepilot-v2`, then retries one HDHive sign-in through AgentResourceOfficer.
+This ARO repair command refreshes the HDHive webpage cookie from the local browser export tool, restarts `moviepilot-v2`, then retries one HDHive sign-in through AgentResourceOfficer.
 
 When `影巢签到` or `影巢签到日志` clearly shows cookie/login failure, prefer the automatic repair flow instead of asking the user to hand-copy cookies. First remind the user to ensure they are logged into `https://hdhive.com` in Edge, then run `hdhive-checkin-repair`, and finally show the new sign-in result.
 
-When a user says `刷新夸克Cookie`, do not route that phrase into AgentResourceOfficer. Treat it as a host-side repair action and run:
+When a user says `刷新夸克Cookie`, run:
 
 ```bash
 python3 scripts/aro_request.py quark-cookie-refresh
 ```
 
-This command exports the current Quark webpage cookie from the local browser, writes it back into MoviePilot and AgentResourceOfficer, and restarts `moviepilot-v2`.
+This ARO repair command exports the current Quark webpage cookie from the local browser, writes it back into MoviePilot and AgentResourceOfficer, and restarts `moviepilot-v2`.
 
-When a user says `修复夸克转存`, do not route that phrase directly. Prefer:
+When a user says `修复夸克转存`, run:
 
 ```bash
 python3 scripts/aro_request.py quark-transfer-repair --retry-text "<刚才失败的原始转存命令>"
@@ -281,7 +283,7 @@ python3 scripts/aro_request.py quark-transfer-repair --retry-text "<刚才失败
 
 If there is no safe transfer command to retry, run `python3 scripts/aro_request.py quark-transfer-repair` first to refresh the cookie and verify Quark health, then ask the user to retry the original transfer.
 
-Only use the Quark automatic repair flow when the failure clearly points to login/cookie problems, for example `require login [guest]`, `夸克登录态已过期`, or `当前夸克登录态不足`. Do not trigger it for share-link restrictions, deleted links, or ordinary 403/41031 share bans.
+When Quark transfer fails and the failure clearly points to cookie/login/connection problems, such as `require login [guest]`, `夸克登录态已过期`, `当前夸克登录态不足`, cookie parse failure, SSL failure, or connection reset/timeout on the Quark health probe, run `quark-cookie-refresh` or `quark-transfer-repair` directly and retry once when a safe retry text exists. Do not ask the user whether to refresh first. Do not trigger this repair path for share-link restrictions, deleted links, or ordinary 403/41031 share bans.
 
 For ordinary search, cloud search, and HDHive resource lists, preserve the plugin's original numbering exactly. Do not reformat a numbered resource list into unnumbered prose, do not collapse numbered items into a separate summary, and do not move the actionable numbers only into a later recommendation paragraph. Smart recommendations are welcome after the original list, and can be as detailed as useful, as long as they reference the original item numbers and do not replace the list.
 

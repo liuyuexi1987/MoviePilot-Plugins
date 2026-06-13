@@ -44,7 +44,8 @@ patch_file() {
 
   docker cp "${container}:${plugin_file}" "${local_file}"
 
-  if grep -q "_optional_event_register(_TRANSFER_OVERWRITE_CHECK_EVENT)" "${local_file}"; then
+  if grep -q "_optional_event_register(_TRANSFER_RENAME_BUILD_EVENT)" "${local_file}" && \
+     grep -q "_optional_event_register(_TRANSFER_OVERWRITE_CHECK_EVENT)" "${local_file}"; then
     echo "already patched: ${plugin_file}"
   else
     python3 - "${local_file}" <<'PY'
@@ -54,6 +55,7 @@ import sys
 path = Path(sys.argv[1])
 text = path.read_text()
 
+text = text.replace("    TransferRenameBuildEventData,\n", "")
 text = text.replace("    TransferOverwriteCheckEventData,\n", "")
 
 markers = [
@@ -62,7 +64,14 @@ markers = [
 ]
 compat = '''from app.schemas.types import EventType, MessageChannel, ChainEventType, MediaType
 
+_TRANSFER_RENAME_BUILD_EVENT = getattr(ChainEventType, "TransferRenameBuild", None)
 _TRANSFER_OVERWRITE_CHECK_EVENT = getattr(ChainEventType, "TransferOverwriteCheck", None)
+try:
+    from app.schemas import TransferRenameBuildEventData
+except Exception:
+    class TransferRenameBuildEventData:
+        pass
+
 try:
     from app.schemas import TransferOverwriteCheckEventData
 except Exception:
@@ -79,15 +88,54 @@ def _optional_event_register(event_type):
 '''
 
 marker = next((item for item in markers if item in text), None)
-if marker is None:
+if marker is None and "def _optional_event_register(event_type):" not in text:
     raise SystemExit("cannot find ChainEventType import marker")
-text = text.replace(marker, compat, 1)
+if marker is not None:
+    text = text.replace(marker, compat, 1)
 
-old = "@eventmanager.register(ChainEventType.TransferOverwriteCheck)"
-new = "@_optional_event_register(_TRANSFER_OVERWRITE_CHECK_EVENT)"
-if old not in text:
-    raise SystemExit("cannot find TransferOverwriteCheck decorator")
-text = text.replace(old, new, 1)
+if "_TRANSFER_RENAME_BUILD_EVENT =" not in text:
+    anchor = '_TRANSFER_OVERWRITE_CHECK_EVENT = getattr(ChainEventType, "TransferOverwriteCheck", None)\n'
+    if anchor not in text:
+        raise SystemExit("cannot find overwrite event anchor")
+    text = text.replace(
+        anchor,
+        '_TRANSFER_RENAME_BUILD_EVENT = getattr(ChainEventType, "TransferRenameBuild", None)\n' + anchor,
+        1,
+    )
+
+rename_fallback = '''try:
+    from app.schemas import TransferRenameBuildEventData
+except Exception:
+    class TransferRenameBuildEventData:
+        pass
+
+'''
+if "from app.schemas import TransferRenameBuildEventData" not in text:
+    overwrite_try = '''try:
+    from app.schemas import TransferOverwriteCheckEventData
+'''
+    if overwrite_try not in text:
+        raise SystemExit("cannot find overwrite fallback anchor")
+    text = text.replace(overwrite_try, rename_fallback + overwrite_try, 1)
+
+decorator_pairs = [
+    (
+        "@eventmanager.register(ChainEventType.TransferRenameBuild)",
+        "@_optional_event_register(_TRANSFER_RENAME_BUILD_EVENT)",
+        "TransferRenameBuild",
+    ),
+    (
+        "@eventmanager.register(ChainEventType.TransferOverwriteCheck)",
+        "@_optional_event_register(_TRANSFER_OVERWRITE_CHECK_EVENT)",
+        "TransferOverwriteCheck",
+    ),
+]
+
+for old, new, label in decorator_pairs:
+    if old in text:
+        text = text.replace(old, new, 1)
+    elif new not in text:
+        raise SystemExit(f"cannot find {label} decorator")
 
 path.write_text(text)
 PY

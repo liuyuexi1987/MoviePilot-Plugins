@@ -9,6 +9,11 @@ from zoneinfo import ZoneInfo
 import requests
 
 try:
+    from app.helper.browser import PlaywrightHelper
+except Exception:
+    PlaywrightHelper = None
+
+try:
     from app.chain.media import MediaChain
 except Exception:
     MediaChain = None
@@ -618,13 +623,21 @@ class HDHiveOpenApiService:
 
     @staticmethod
     def _cookie_string_from_mapping(cookies: Dict[str, str]) -> str:
-        token_cookie = str((cookies or {}).get("token") or "").strip()
-        csrf_cookie = str((cookies or {}).get("csrf_access_token") or "").strip()
+        normalized = {str(key or "").strip(): str(value or "").strip() for key, value in (cookies or {}).items()}
+        token_cookie = normalized.get("token", "")
         if not token_cookie:
             return ""
-        cookie_items = [f"token={token_cookie}"]
-        if csrf_cookie:
-            cookie_items.append(f"csrf_access_token={csrf_cookie}")
+        preferred_order = ["hdh_sa_token", "token", "refresh_token", "csrf_access_token", "hdh_uid"]
+        cookie_items: List[str] = []
+        seen: set[str] = set()
+        for name in preferred_order:
+            value = normalized.get(name, "")
+            if value:
+                cookie_items.append(f"{name}={value}")
+                seen.add(name)
+        for name, value in normalized.items():
+            if name and value and name not in seen:
+                cookie_items.append(f"{name}={value}")
         return "; ".join(cookie_items)
 
     @classmethod
@@ -804,76 +817,92 @@ class HDHiveOpenApiService:
         else:
             server_action_message = "未解析到登录 Action"
 
-        try:
-            from playwright.sync_api import sync_playwright
-        except Exception:
-            return False, "", server_action_message or "自动登录失败，且 Playwright 不可用"
+        if PlaywrightHelper is None:
+            return False, "", server_action_message or "自动登录失败，且 MoviePilot PlaywrightHelper 不可用"
 
-        try:
-            proxy = None
-            try:
-                proxy_config = getattr(settings, "PROXY", None) if settings is not None else None
-                server = (proxy_config or {}).get("http") or (proxy_config or {}).get("https")
-                if server:
-                    proxy = {"server": server}
-            except Exception:
-                proxy = None
-            with sync_playwright() as pw:
-                browser = pw.chromium.launch(headless=True, proxy=proxy) if proxy else pw.chromium.launch(headless=True)
-                context = browser.new_context()
-                page = context.new_page()
-                page.goto(login_url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
-                for selector in [
-                    "input[name='username']",
-                    "input[name='email']",
-                    "input[type='email']",
-                    "input[placeholder*='邮箱']",
-                    "input[placeholder*='email']",
-                    "input[placeholder*='用户名']",
-                ]:
-                    try:
-                        if page.query_selector(selector):
-                            page.fill(selector, username)
-                            break
-                    except Exception:
-                        continue
-                for selector in [
-                    "input[name='password']",
-                    "input[type='password']",
-                    "input[placeholder*='密码']",
-                ]:
-                    try:
-                        if page.query_selector(selector):
-                            page.fill(selector, password)
-                            break
-                    except Exception:
-                        continue
+        def _login_with_page(page: Any) -> List[Dict[str, Any]]:
+            for selector in [
+                "input[name='username']",
+                "input[name='email']",
+                "input[type='email']",
+                "input[placeholder*='邮箱']",
+                "input[placeholder*='email']",
+                "input[placeholder*='用户名']",
+            ]:
                 try:
-                    button = (
-                        page.query_selector("button[type='submit']")
-                        or page.query_selector("button:has-text('登录')")
-                        or page.query_selector("button:has-text('Login')")
-                    )
-                    if button:
-                        button.click()
-                    else:
-                        page.keyboard.press("Enter")
+                    if page.query_selector(selector):
+                        page.fill(selector, username)
+                        break
                 except Exception:
-                    page.keyboard.press("Enter")
+                    continue
+            for selector in [
+                "input[name='password']",
+                "input[type='password']",
+                "input[placeholder*='密码']",
+            ]:
                 try:
-                    page.wait_for_load_state("networkidle", timeout=10000)
+                    if page.query_selector(selector):
+                        page.fill(selector, password)
+                        break
+                except Exception:
+                    continue
+            try:
+                button = (
+                    page.query_selector("button[type='submit']")
+                    or page.query_selector("button:has-text('登录')")
+                    or page.query_selector("button:has-text('Login')")
+                )
+                if button:
+                    button.click()
+                else:
+                    page.click("button")
+            except Exception:
+                try:
+                    page.click("button")
                 except Exception:
                     pass
-                cookies = context.cookies()
-                context.close()
-                browser.close()
+            try:
+                page.wait_for_load_state("networkidle", timeout=10000)
+            except Exception:
+                pass
+            deadline = self.tz_now().timestamp() + 15
+            while self.tz_now().timestamp() < deadline:
+                try:
+                    cookies = page.context.cookies()
+                    if any(str(item.get("name") or "") == "token" and item.get("value") for item in cookies):
+                        return cookies
+                except Exception:
+                    pass
+                try:
+                    if "/login" not in (page.url or ""):
+                        page.wait_for_timeout(1000)
+                except Exception:
+                    pass
+                try:
+                    page.wait_for_timeout(500)
+                except Exception:
+                    break
+            try:
+                return page.context.cookies()
+            except Exception:
+                return []
+
+        try:
+            proxy_config = getattr(settings, "PROXY", None) if settings is not None else None
+            cookies = PlaywrightHelper().action(
+                login_url,
+                callback=_login_with_page,
+                proxies=proxy_config,
+                headless=True,
+                timeout=max(30, self.timeout),
+            ) or []
         except Exception as exc:
-            return False, "", f"Playwright 自动登录失败: {exc}"
+            return False, "", f"PlaywrightHelper 自动登录失败: {exc}"
 
         cookie_map = {str(item.get("name") or ""): str(item.get("value") or "") for item in cookies or []}
         cookie_string = self._cookie_string_from_mapping(cookie_map)
         if cookie_string:
-            return True, cookie_string, "Playwright 登录成功"
+            return True, cookie_string, "PlaywrightHelper 登录成功"
         return False, "", server_action_message or "自动登录失败，未获取到有效 Cookie"
 
     @classmethod

@@ -12,9 +12,10 @@ DDSRem-Dev/MoviePilot-Plugins (plugins.v2/p115strmhelper/helper/hdhive/browser.p
 """
 from __future__ import annotations
 
+import concurrent.futures
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from app.helper.browser import PlaywrightHelper
 from app.log import logger
@@ -108,13 +109,48 @@ class HDHiveBrowserService:
         base_url: str = "https://hdhive.com",
         cookie: str = "",
         timeout: int = 30,
+        cookie_refresh_callback: Optional[Callable[[], str]] = None,
     ) -> None:
         self.base_url = (base_url or "https://hdhive.com").rstrip("/")
         self.cookie = (cookie or "").strip()
         self.timeout = int(timeout or 30)
+        self.cookie_refresh_callback = cookie_refresh_callback
 
     def is_ready(self) -> bool:
         return bool(self.cookie)
+
+    @staticmethod
+    def _cookie_expired_result() -> Dict[str, str]:
+        return {"__hdhive_browser_error__": "cookie_expired"}
+
+    @staticmethod
+    def _is_cookie_expired_result(value: Any) -> bool:
+        return isinstance(value, dict) and value.get("__hdhive_browser_error__") == "cookie_expired"
+
+    def _refresh_cookie(self) -> str:
+        if not self.cookie_refresh_callback:
+            return ""
+        try:
+            cookie = self.cookie_refresh_callback()
+        except Exception as exc:
+            logger.warning(f"[HDHiveBrowser] 自动刷新 Cookie 失败: {exc}")
+            return ""
+        cookie = str(cookie or "").strip()
+        if cookie:
+            self.cookie = cookie
+        return cookie
+
+    def _context_cookies(self) -> List[Dict[str, str]]:
+        items: List[Dict[str, str]] = []
+        for part in str(self.cookie or "").split(";"):
+            if "=" not in part:
+                continue
+            name, value = part.strip().split("=", 1)
+            name = name.strip()
+            value = value.strip()
+            if name and value:
+                items.append({"name": name, "value": value, "url": f"{self.base_url}/"})
+        return items
 
     def _detail_url(self, media_type: Any, tmdb_id: Any) -> str:
         mt = "movie" if str(media_type).lower() in ("movie", "电影") else "tv"
@@ -137,6 +173,34 @@ class HDHiveBrowserService:
             "tags": card.get("tags", []),
         }
 
+    def _run_browser_action(self, url: str, callback: Any) -> Any:
+        """Run MoviePilot's sync Playwright helper outside the active async request loop."""
+        helper_timeout = max(60, self.timeout)
+
+        def _callback_with_context_cookies(page: Any) -> Any:
+            context_cookies = self._context_cookies()
+            if context_cookies:
+                page.context.add_cookies(context_cookies)
+                page.goto(url)
+                page.wait_for_load_state("networkidle", timeout=helper_timeout * 1000)
+            return callback(page)
+
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="hdhive-browser")
+        future = executor.submit(
+            lambda: PlaywrightHelper().action(
+                url,
+                callback=_callback_with_context_cookies,
+                timeout=helper_timeout,
+            )
+        )
+        try:
+            return future.result(timeout=helper_timeout + 30)
+        except concurrent.futures.TimeoutError as exc:
+            future.cancel()
+            raise RuntimeError(f"影巢网页操作超时（{helper_timeout} 秒）") from exc
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
     def search(self, media_type: Any, tmdb_id: Any) -> List[Dict[str, Any]]:
         """打开影巢详情页抓资源卡片。失败返回 []。"""
         url = self._detail_url(media_type, tmdb_id)
@@ -147,7 +211,7 @@ class HDHiveBrowserService:
             while time.time() < deadline:
                 try:
                     if "/login" in (page.url or ""):
-                        raise RuntimeError("cookie 失效，被重定向到登录页")
+                        return self._cookie_expired_result()
                     cards = page.evaluate(_SCRAPE_CARDS_JS) or []
                 except RuntimeError:
                     raise
@@ -159,12 +223,12 @@ class HDHiveBrowserService:
             return cards
 
         try:
-            cards = PlaywrightHelper().action(
-                url, callback=_callback, cookies=self.cookie, timeout=self.timeout
-            )
+            cards = self._run_browser_action(url, _callback)
         except Exception as exc:
             logger.warning(f"[HDHiveBrowser] 搜索失败({url}): {exc}")
             return []
+        if self._is_cookie_expired_result(cards):
+            raise RuntimeError("cookie 失效，被重定向到登录页")
         return [self._normalize(c) for c in (cards or []) if c.get("href")]
 
     def unlock(self, slug: str) -> Dict[str, Any]:
@@ -199,7 +263,7 @@ class HDHiveBrowserService:
             page.on("response", _on_response)
 
             if "/login" in (page.url or ""):
-                raise RuntimeError("cookie 失效，被重定向到登录页")
+                return self._cookie_expired_result()
 
             confirm = page.get_by_text("确定解锁", exact=True)
             existing: Optional[str] = None
@@ -241,9 +305,10 @@ class HDHiveBrowserService:
                 page.wait_for_timeout(500)
             raise RuntimeError(f"解锁后未获取 115 链接（URL: {page.url}）")
 
-        return PlaywrightHelper().action(
-            url, callback=_callback, cookies=self.cookie, timeout=self.timeout
-        )
+        result = self._run_browser_action(url, _callback)
+        if self._is_cookie_expired_result(result):
+            raise RuntimeError("cookie 失效，被重定向到登录页")
+        return result
 
     # ----- 与 HDHiveOpenApiService 对齐的兼容接口（返回 (ok, result, message) 三元组) -----
 
@@ -265,12 +330,20 @@ class HDHiveBrowserService:
             return False, {"ok": False, "message": "媒体类型必须是 movie 或 tv", "query": query, "data": []}, "媒体类型必须是 movie 或 tv"
         if not tid:
             return False, {"ok": False, "message": "TMDB ID 不能为空", "query": query, "data": []}, "TMDB ID 不能为空"
-        if not self.is_ready():
+        if not self.is_ready() and not self._refresh_cookie():
             return False, {"ok": False, "message": "影巢网页 Cookie 未配置", "query": query, "data": []}, "影巢网页 Cookie 未配置"
         try:
             items = self.search(mt, tid)
         except Exception as exc:
-            return False, {"ok": False, "message": str(exc), "query": query, "data": []}, f"影巢网页搜索失败: {exc}"
+            message = str(exc)
+            if "cookie 失效" in message and self._refresh_cookie():
+                try:
+                    items = self.search(mt, tid)
+                except Exception as retry_exc:
+                    message = str(retry_exc)
+                    return False, {"ok": False, "message": message, "query": query, "data": []}, f"影巢网页搜索失败: {message}"
+            else:
+                return False, {"ok": False, "message": message, "query": query, "data": []}, f"影巢网页搜索失败: {message}"
         data = [
             {
                 "slug": it.get("slug", ""),
@@ -303,12 +376,20 @@ class HDHiveBrowserService:
         slug = (slug or "").strip()
         if not slug:
             return False, {"ok": False, "message": "slug 不能为空", "slug": "", "data": {}}, "slug 不能为空"
-        if not self.is_ready():
+        if not self.is_ready() and not self._refresh_cookie():
             return False, {"ok": False, "message": "影巢网页 Cookie 未配置", "slug": slug, "data": {}}, "影巢网页 Cookie 未配置"
         try:
             res = self.unlock(slug)
         except Exception as exc:
-            return False, {"ok": False, "message": str(exc), "slug": slug, "data": {}}, f"影巢网页解锁失败: {exc}"
+            message = str(exc)
+            if "cookie 失效" in message and self._refresh_cookie():
+                try:
+                    res = self.unlock(slug)
+                except Exception as retry_exc:
+                    message = str(retry_exc)
+                    return False, {"ok": False, "message": message, "slug": slug, "data": {}}, f"影巢网页解锁失败: {message}"
+            else:
+                return False, {"ok": False, "message": message, "slug": slug, "data": {}}, f"影巢网页解锁失败: {message}"
         link = (res.get("url") or "").strip()
         data = {"full_url": link, "url": link, "pan_type": "115"}
         msg = "success" if link else "影巢网页方式解锁失败"
