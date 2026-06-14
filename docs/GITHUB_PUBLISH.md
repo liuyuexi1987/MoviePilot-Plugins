@@ -48,13 +48,10 @@ Personal MoviePilot plugin suite for agent-driven resource workflows, AI recogni
 
 ## 当前 ZIP 覆盖
 
-`release-preflight.sh` 的完整检查阶段会生成当前清单里的 8 个本地安装包：
+`release-preflight.sh` 的完整检查阶段会生成当前清单里的 2 个本地安装包：
 
 - `AIRecognizerEnhancer`
 - `AgentResourceOfficer`
-- `FeishuCommandBridgeLong`
-- `HdhiveOpenApi`
-- `QuarkShareSaver`
 
 ## 历史说明
 

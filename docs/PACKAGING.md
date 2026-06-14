@@ -56,18 +56,17 @@ bash scripts/package-plugin.sh --all
 
 `--all` 会在打包后自动生成 `SHA256SUMS.txt`、`MANIFEST.json` 并执行 `scripts/verify-dist.sh`。
 
-如需打包其他插件，例如 `AgentResourceOfficer` 或飞书桥接插件：
+如需单独打包当前插件，例如 `AgentResourceOfficer`：
 
 ```bash
 bash scripts/package-plugin.sh AgentResourceOfficer
-bash scripts/package-plugin.sh FeishuCommandBridgeLong
 ```
 
 脚本会自动先同步一次官方仓库布局，再生成 ZIP。
 
 同步脚本会根据 `package.json` 自动发现根目录中带 `__init__.py` 的源码插件，并同步到 `plugins/` 和 `plugins.v2/`。
 
-插件名会优先按 `package.json` 做大小写不敏感匹配。例如 `hdhiveopenapi` 会被规范为 `HdhiveOpenApi`，生成的 ZIP 根目录也会保持标准插件 ID。
+插件名会优先按 `package.json` 做大小写不敏感匹配，生成的 ZIP 根目录也会保持标准插件 ID。
 
 如果插件代码目录来自 `plugins/` 或 `plugins.v2/`，但说明文档保留在仓库顶层同名目录下，打包脚本会自动把顶层 `README.md` 补进 ZIP。
 
@@ -151,18 +150,15 @@ gh workflow run draft-release.yml -f tag=<tag> -f dry_run=true
 
 - `AIRecognizerEnhancer`
 - `AgentResourceOfficer`
-- `FeishuCommandBridgeLong`
-- `HdhiveOpenApi`
-- `QuarkShareSaver`
 
 完整检查还会校验：
 
 - 仓库内发布脚本和 Skill shell helper 必须能通过 shell 语法检查
 - 插件代码和仓库内 Skill helper 脚本必须能通过 Python 语法检查
-- `AgentResourceOfficer` 和 `hdhive-search-unlock-to-115` Skill helper 的本地 `selftest` 必须通过
+- `AgentResourceOfficer` 和相关 Skill helper 的本地 `selftest` 必须通过
 - `AgentResourceOfficer` Skill 的 `external-agent` 入口必须能输出 `external_agent.v1`、3 个最小工具和有效 `EXTERNAL_AGENTS.md`；`workbuddy` 仅作为兼容别名保留，并已标记为 deprecated。
-- `AgentResourceOfficer` 和 `hdhive-search-unlock-to-115` Skill helper 版本必须同步到 README 和 CHANGELOG
-- `AgentResourceOfficer` 和 `hdhive-search-unlock-to-115` Skill 安装脚本的 `--dry-run` 必须通过
+- `AgentResourceOfficer` Skill helper 版本必须同步到 README 和 CHANGELOG
+- `AgentResourceOfficer` Skill 安装脚本的 `--dry-run` 必须通过
 - 如果设置 `RUN_AGENT_RESOURCE_OFFICER_LIVE_SMOKE=1`，完整检查还会执行 `scripts/smoke-agent-resource-officer.py --include-search`，对本机 MoviePilot 做真实只读 smoke
 - 以上 Skill 检查可以单独运行 `bash scripts/check-skills.sh`
 - 发布脚本中的插件清单必须和 `package.json` 一致

@@ -94,7 +94,7 @@ if [[ -n "$HELPER_VERSION" && -n "$HELPER_HIGHLIGHT" ]]; then
   echo "- agent-resource-officer helper ${HELPER_VERSION}：${HELPER_HIGHLIGHT}"
 fi
 echo "- live smoke 已覆盖 external-agent request templates、MP搜索、盘搜、影巢别名和 115状态。"
-echo "- 内置飞书入口默认关闭；新用户可优先使用本插件内置飞书，旧 FeishuCommandBridgeLong 保留为兼容/备份插件。"
+echo "- 内置飞书入口默认关闭；新用户可优先使用本插件内置飞书，旧独立插件已迁移到备份仓库，不再作为当前插件市场条目发布。"
 echo "- 115 直转层支持扫码会话；STRM 生成、302、全量/增量同步仍建议继续交给 P115StrmHelper。"
 echo "- 附件已包含插件/Skill manifest 与 SHA256 校验文件，下载后可用 verify-release-download 校验。"
 echo

@@ -38,9 +38,6 @@ trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
 PACKAGE_PLUGINS=(
   AIRecognizerEnhancer
   AgentResourceOfficer
-  FeishuCommandBridgeLong
-  HdhiveOpenApi
-  QuarkShareSaver
 )
 
 release_git_status() {
@@ -77,8 +74,6 @@ from pathlib import Path
 roots = [
     Path("AIRecognizerEnhancer"),
     Path("AgentResourceOfficer"),
-    Path("FeishuCommandBridgeLong"),
-    Path("QuarkShareSaver"),
     Path("plugins"),
     Path("plugins.v2"),
     Path("skills"),

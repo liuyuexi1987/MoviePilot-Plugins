@@ -50,19 +50,11 @@ AI识别增强
 普通用户只需要优先认这两个包：
 
 ```text
-AgentResourceOfficer-0.2.69.zip
-AIRecognizerEnhancer-0.1.12.zip
+AgentResourceOfficer-0.3.0.zip
+AIRecognizerEnhancer-0.1.13.zip
 ```
 
-其他旧插件包只用于兼容旧链路，新装一般不用优先安装。
-
-当前 Release 里还可能看到这些旧插件包：
-
-```text
-FeishuCommandBridgeLong-0.5.26.zip
-HdhiveOpenApi-0.3.0.zip
-QuarkShareSaver-0.1.0.zip
-```
+旧插件包已移到备份仓库，不再作为当前插件市场条目发布。
 
 ---
 
@@ -102,7 +94,6 @@ QuarkShareSaver-0.1.0.zip
 盘搜搜索 片名
 影巢搜索 片名
 搜索 片名
-选择 1
 下载 片名
 订阅 片名
 115登录
@@ -159,17 +150,15 @@ MCP 地址：http://你的MP地址:3000/api/v1/mcp
 
 ---
 
-## 旧插件还要不要装
+## 旧插件在哪里
 
-新装一般不需要优先安装旧插件。
+`FeishuCommandBridgeLong`、`HdhiveOpenApi`、`QuarkShareSaver` 已从当前插件仓库移出，避免继续出现在插件市场里。归档备份在：
 
-| 旧插件 | 用途 | 建议 |
-|---|---|---|
-| `FeishuCommandBridgeLong` | 旧飞书入口 | 新环境优先用 Agent影视助手内置飞书入口 |
-| `HdhiveOpenApi` | 旧影巢独立能力 | 主能力已收进 Agent影视助手 |
-| `QuarkShareSaver` | 旧夸克独立转存 | 主能力已收进 Agent影视助手 |
+```text
+https://github.com/liuyuexi1987/MoviePilot-Plugins-legacy-backup
+```
 
-如果你是老环境迁移，可以暂时保留；如果是新装，先用 `Agent影视助手`。
+新装环境请直接使用 `Agent影视助手`。
 
 ---
 
@@ -177,11 +166,13 @@ MCP 地址：http://你的MP地址:3000/api/v1/mcp
 
 如果你只是普通用户，到这里就够了。
 
-资源主线：`Agent影视助手 / AgentResourceOfficer 0.2.69`
+资源主线：`Agent影视助手 / AgentResourceOfficer 0.3.0`
 
-当前 Skill helper：`agent-resource-officer 0.1.49`
+当前已验证上游 MoviePilot：`v2.11.4`
 
-当前 Release：https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.2.73
+当前 Skill helper：`agent-resource-officer 0.1.51`
+
+当前 Release：https://github.com/liuyuexi1987/MoviePilot-Plugins/releases
 
 维护命令路径：`docs/MAINTENANCE_COMMANDS.md`
 

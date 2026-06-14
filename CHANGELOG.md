@@ -3,24 +3,22 @@
 ## 当前主线
 
 - 仓库已经从单一 AI Gateway 插件，收拢为 MoviePilot 资源与智能体插件套件。
-- 当前发布前检查覆盖 5 个可本地安装插件：
-  `AIRecognizerEnhancer`、`AgentResourceOfficer`、`FeishuCommandBridgeLong`、`HdhiveOpenApi`、`QuarkShareSaver`。
+- 当前发布前检查覆盖 2 个可本地安装插件：
+  `AIRecognizerEnhancer`、`AgentResourceOfficer`。
 - `AgentResourceOfficer` 已作为新资源主入口，负责影巢、盘搜、115、夸克、内置飞书入口和智能体 Tool 的统一路由。
-- `FeishuCommandBridgeLong` 继续保留为兼容/备份入口，新用户优先使用 `AgentResourceOfficer` 内置飞书 Channel。
+- 旧插件 `FeishuCommandBridgeLong`、`HdhiveOpenApi`、`QuarkShareSaver` 已迁移到备份仓库，不再作为当前插件市场条目发布。
 - `AIRecognizerEnhancer` 作为新识别增强线，逐步替代旧网关转发链路。
 - 发布流程已补齐 `plugins/`、`plugins.v2/` 同步、元数据校验、语法检查、ZIP 打包和 GitHub Actions CI。
 
 ## 当前核心版本
 
-- `AIRecognizerEnhancer`: `0.1.12`
+- `AIRecognizerEnhancer`: `0.1.13`
 - `AgentResourceOfficer`: `0.3.0`
-- `FeishuCommandBridgeLong`: `0.5.26`
-- `HdhiveOpenApi`: `0.3.0`
-- `QuarkShareSaver`: `0.1.0`
 
 ## 近期基础设施更新
 
 - `AgentResourceOfficer 0.3.0`：精简 Agent/MCP 暴露工具集，仅保留 12 个业务能力工具，移除 ARO 自建计划、会话和自描述脚手架噪声；保留飞书与 HTTP 端点。
+- `AIRecognizerEnhancer 0.1.13`：收紧失败样本持久化逻辑，修复清空失败样本与自动移除样本后的配置保存一致性。
 - `AgentResourceOfficer 0.2.99`：修复飞书/助手 PT 搜索入口因可选 SubscribeHelper 路径变更导致整组 MoviePilot 搜索依赖被误判缺失的问题。
 - `AgentResourceOfficer 0.2.98`：修复影巢网页登录 Cookie 只作为请求头注入导致详情页仍被重定向登录的问题，网页搜索/解锁会写入 Playwright context 后重新打开目标页。
 - `AgentResourceOfficer 0.2.97`：将影巢网页搜索/解锁的浏览器动作最小超时提升到 60 秒，降低详情页加载较慢时误判无资源的概率。
