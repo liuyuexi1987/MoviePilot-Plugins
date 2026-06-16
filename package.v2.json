@@ -28,11 +28,12 @@
     "name": "Agent影视助手",
     "description": "龙虾agent稳定控制 MP：飞书入口、盘搜/影巢搜索、115/夸克转存、智能评分推荐。",
     "labels": "Agent,影巢,HDHive,115,夸克,Quark,智能体,转存,解锁",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "icon": "agentresourceofficer.png",
     "author": "liuyuexi1987",
     "level": 1,
     "history": {
+      "0.3.1": "回退并固定 p115client 到 0.0.8.5.1.1，避免与 MoviePilot 当前环境和 115 插件依赖版本冲突。",
       "0.3.0": "精简 Agent/MCP 暴露工具集，仅保留 12 个业务能力工具，移除 ARO 自建计划、会话和自描述脚手架噪声；保留飞书与 HTTP 端点。",
       "0.2.99": "修复飞书/助手 PT 搜索入口因可选 SubscribeHelper 路径变更导致整组 MoviePilot 搜索依赖被误判缺失的问题。",
       "0.2.98": "修复影巢网页登录 Cookie 只作为请求头注入导致详情页仍被重定向登录的问题，网页搜索/解锁会写入 Playwright context 后重新打开目标页。",

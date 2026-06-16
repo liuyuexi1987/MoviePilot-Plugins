@@ -50,7 +50,7 @@ AI识别增强
 普通用户只需要优先认这两个包：
 
 ```text
-AgentResourceOfficer-0.3.0.zip
+AgentResourceOfficer-0.3.1.zip
 AIRecognizerEnhancer-0.1.13.zip
 ```
 
@@ -166,7 +166,7 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins-legacy-backup
 
 如果你只是普通用户，到这里就够了。
 
-资源主线：`Agent影视助手 / AgentResourceOfficer 0.3.0`
+资源主线：`Agent影视助手 / AgentResourceOfficer 0.3.1`
 
 当前已验证上游 MoviePilot：`v2.11.4`
 

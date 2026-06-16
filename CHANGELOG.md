@@ -13,10 +13,11 @@
 ## 当前核心版本
 
 - `AIRecognizerEnhancer`: `0.1.13`
-- `AgentResourceOfficer`: `0.3.0`
+- `AgentResourceOfficer`: `0.3.1`
 
 ## 近期基础设施更新
 
+- `AgentResourceOfficer 0.3.1`：回退并固定 `p115client` 到 `0.0.8.5.1.1`，避免与 MoviePilot 当前环境和 115 插件依赖版本冲突。
 - `AgentResourceOfficer 0.3.0`：精简 Agent/MCP 暴露工具集，仅保留 12 个业务能力工具，移除 ARO 自建计划、会话和自描述脚手架噪声；保留飞书与 HTTP 端点。
 - `AIRecognizerEnhancer 0.1.13`：收紧失败样本持久化逻辑，修复清空失败样本与自动移除样本后的配置保存一致性。
 - `AgentResourceOfficer 0.2.99`：修复飞书/助手 PT 搜索入口因可选 SubscribeHelper 路径变更导致整组 MoviePilot 搜索依赖被误判缺失的问题。

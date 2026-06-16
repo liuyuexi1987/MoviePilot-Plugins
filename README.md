@@ -205,7 +205,7 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins-legacy-backup
 
 | 插件 | 版本 | 说明 |
 |---|---|---|
-| Agent影视助手 | `0.3.0` | 当前主线插件，统一承接盘搜、影巢、115、夸克、PT 下载、飞书入口和外部智能体入口 |
+| Agent影视助手 | `0.3.1` | 当前主线插件，统一承接盘搜、影巢、115、夸克、PT 下载、飞书入口和外部智能体入口 |
 | AI识别增强 | `0.1.13` | MoviePilot 原生识别失败后的本地 LLM 兜底和失败样本治理 |
 
 ---
@@ -224,7 +224,7 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins-legacy-backup
 
 ## 维护信息
 
-当前发布版本：`0.3.0`
+当前发布版本：`0.3.1`
 
 当前已验证上游 MoviePilot：`v2.11.4`
 
@@ -232,7 +232,7 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins-legacy-backup
 
 当前版本：
 
-- `0.3.0`
+- `0.3.1`
 
 当前 Release：https://github.com/liuyuexi1987/MoviePilot-Plugins/releases
 
