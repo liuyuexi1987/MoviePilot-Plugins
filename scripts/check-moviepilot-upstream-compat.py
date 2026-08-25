@@ -20,7 +20,10 @@ CHECKS = {
         ],
     },
     "metainfo": {
-        "path": "app/core/metainfo.py",
+        "paths": [
+            "app/domain/metainfo.py",
+            "app/core/metainfo.py",
+        ],
         "patterns": [
             r"(?:class|def)\s+MetaInfo\b",
         ],
@@ -38,13 +41,21 @@ CHECKS = {
         "patterns": [
             r"def\s+add\s*\(",
             r"'save_path':\s*self\.__get_default_subscribe_config",
-            r"SubscribeOper\(\)\.add",
+        ],
+        "any_patterns": [
+            [
+                r"SubscribeOper\(\)\.add",
+                r"(?:add_subscribe|async_add_subscribe)\s*\(",
+            ],
         ],
     },
     "agent_llm_init": {
         "path": "app/agent/llm/__init__.py",
-        "patterns": [
-            r"from\s+app\.agent\.llm\.helper\s+import\s+LLMHelper",
+        "any_patterns": [
+            [
+                r"from\s+app\.agent\.llm\.helper\s+import\s+LLMHelper",
+                r"[\"']LLMHelper[\"']\s*:\s*[\"']app\.agent\.llm\.helper[\"']",
+            ],
         ],
     },
     "agent_llm_helper": {
@@ -137,23 +148,33 @@ def main() -> int:
     failures: list[str] = []
     checked = 0
     for name, spec in CHECKS.items():
-        path = spec["path"]
-        raw_url = f"{RAW_BASE}/{tag}/{path}"
-        try:
-            text = fetch_text(raw_url)
-        except urllib.error.HTTPError as exc:
-            failures.append(f"{name}: {path} http_{exc.code}")
+        paths = spec.get("paths") or [spec["path"]]
+        text = None
+        selected_path = None
+        path_errors = []
+        for path in paths:
+            raw_url = f"{RAW_BASE}/{tag}/{path}"
+            try:
+                text = fetch_text(raw_url)
+                selected_path = path
+                break
+            except urllib.error.HTTPError as exc:
+                path_errors.append(f"{path} http_{exc.code}")
+            except Exception as exc:
+                path_errors.append(f"{path} {exc}")
+        if text is None:
+            failures.append(f"{name}: {', '.join(path_errors)}")
             continue
-        except Exception as exc:
-            failures.append(f"{name}: {path} {exc}")
-            continue
+
+        pattern_groups = [[pattern] for pattern in spec.get("patterns", [])]
+        pattern_groups.extend(spec.get("any_patterns", []))
         missing = [
-            pattern
-            for pattern in spec["patterns"]
-            if not re.search(pattern, text, re.MULTILINE)
+            " or ".join(group)
+            for group in pattern_groups
+            if not any(re.search(pattern, text, re.MULTILINE) for pattern in group)
         ]
         if missing:
-            failures.append(f"{name}: {path} missing_patterns={len(missing)}")
+            failures.append(f"{name}: {selected_path} missing_patterns={len(missing)}")
             continue
         checked += 1
 
