@@ -388,7 +388,6 @@ test -f plugins/agentresourceofficer/agenttool.py
 test -f plugins/agentresourceofficer/schemas.py
 test -f plugins/agentresourceofficer/services/p115_transfer.py
 test -f plugins/airecognizerenhancer/__init__.py
-test -f plugins/quarksharesaver/__init__.py
 for plugin_name in "${PACKAGE_PLUGINS[@]}"; do
   version="$(PLUGIN_NAME="$plugin_name" python3 - <<'PY'
 import json
