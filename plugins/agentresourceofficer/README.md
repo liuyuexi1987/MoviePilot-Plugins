@@ -4,13 +4,13 @@
 
 把 `飞书命令入口`、`外部智能体`、`盘搜`、`影巢`、`115`、`夸克`、`MoviePilot 原生搜索 / PT 下载` 收进同一套稳定工作流。
 
-当前版本：`0.2.73`
+当前版本：`0.3.1`
 
 当前 helper 版本：`0.1.51`
 
 当前已验证上游 MoviePilot：`v2.11.4`
 
-当前 Release：https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.2.73
+当前 Release：https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.3.1
 
 如果你是第一次用这个仓库，先把这个插件跑通就够了。
 

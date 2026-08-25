@@ -98,7 +98,7 @@ MoviePilot 原版智能体已经提供“整理失败后自动接管再试一次
 
 当前版本：`0.1.13`
 
-当前 Release：https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.2.73
+当前 Release：https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.3.1
 
 这版已经验证过：
 

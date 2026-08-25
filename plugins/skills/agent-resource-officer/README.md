@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-- 当前插件版本：`Agent影视助手 0.2.74`
+- 当前插件版本：`Agent影视助手 0.3.1`
 
 - 当前已验证上游 MoviePilot：`v2.11.4`
 - 当前最小循环：`startup -> decide --summary-only -> route --summary-only -> followup --summary-only`

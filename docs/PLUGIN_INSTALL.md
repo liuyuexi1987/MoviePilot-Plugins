@@ -172,7 +172,7 @@ https://github.com/liuyuexi1987/MoviePilot-Plugins-legacy-backup
 
 当前 Skill helper：`agent-resource-officer 0.1.51`
 
-当前 Release：https://github.com/liuyuexi1987/MoviePilot-Plugins/releases
+当前 Release：https://github.com/liuyuexi1987/MoviePilot-Plugins/releases/tag/v0.3.1
 
 维护命令路径：`docs/MAINTENANCE_COMMANDS.md`
 
