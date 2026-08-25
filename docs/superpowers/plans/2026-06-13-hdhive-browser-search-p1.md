@@ -82,7 +82,7 @@ def test_normalize_extracts_slug_from_href():
 
 - [ ] **Step 2: 运行测试，确认失败**
 
-Run: `cd /Users/jans/workspace/MoviePilot-Plugins && python3 -m pytest AgentResourceOfficer/tests/test_hdhive_browser.py -v`
+Run: `cd <repo-root> && python3 -m pytest AgentResourceOfficer/tests/test_hdhive_browser.py -v`
 Expected: FAIL（ModuleNotFoundError: hdhive_browser）
 
 - [ ] **Step 3: 写最小实现**
@@ -149,13 +149,13 @@ class HDHiveBrowserService:
 
 - [ ] **Step 4: 运行测试，确认通过**
 
-Run: `cd /Users/jans/workspace/MoviePilot-Plugins && python3 -m pytest AgentResourceOfficer/tests/test_hdhive_browser.py -v`
+Run: `cd <repo-root> && python3 -m pytest AgentResourceOfficer/tests/test_hdhive_browser.py -v`
 Expected: PASS（3 passed）
 
 - [ ] **Step 5: 提交**
 
 ```bash
-cd /Users/jans/workspace/MoviePilot-Plugins
+cd <repo-root>
 git add AgentResourceOfficer/services/hdhive_browser.py AgentResourceOfficer/tests/test_hdhive_browser.py
 git commit -m "feat(aro): HDHiveBrowserService 骨架与纯函数(影巢网页方式 P1)
 
@@ -273,18 +273,18 @@ _SCRAPE_CARDS_JS = r"""
 
 - [ ] **Step 3: 语法检查**
 
-Run: `cd /Users/jans/workspace/MoviePilot-Plugins && python3 -m py_compile AgentResourceOfficer/services/hdhive_browser.py && echo OK`
+Run: `cd <repo-root> && python3 -m py_compile AgentResourceOfficer/services/hdhive_browser.py && echo OK`
 Expected: OK
 
 - [ ] **Step 4: 单元测试仍通过（纯函数未受影响）**
 
-Run: `cd /Users/jans/workspace/MoviePilot-Plugins && python3 -m pytest AgentResourceOfficer/tests/test_hdhive_browser.py -v`
+Run: `cd <repo-root> && python3 -m pytest AgentResourceOfficer/tests/test_hdhive_browser.py -v`
 Expected: PASS
 
 - [ ] **Step 5: 提交**
 
 ```bash
-cd /Users/jans/workspace/MoviePilot-Plugins
+cd <repo-root>
 git add AgentResourceOfficer/services/hdhive_browser.py
 git commit -m "feat(aro): 影巢网页搜索 search() 抓卡片
 
@@ -404,13 +404,13 @@ _EXTRACT_115_URL_JS = r"""
 
 - [ ] **Step 3: 语法检查**
 
-Run: `cd /Users/jans/workspace/MoviePilot-Plugins && python3 -m py_compile AgentResourceOfficer/services/hdhive_browser.py && echo OK`
+Run: `cd <repo-root> && python3 -m py_compile AgentResourceOfficer/services/hdhive_browser.py && echo OK`
 Expected: OK
 
 - [ ] **Step 4: 提交**
 
 ```bash
-cd /Users/jans/workspace/MoviePilot-Plugins
+cd <repo-root>
 git add AgentResourceOfficer/services/hdhive_browser.py
 git commit -m "feat(aro): 影巢网页解锁 unlock() 拿 115 链接
 
@@ -452,13 +452,13 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] **Step 4: 语法检查**
 
-Run: `cd /Users/jans/workspace/MoviePilot-Plugins && python3 -m py_compile AgentResourceOfficer/__init__.py && echo OK`
+Run: `cd <repo-root> && python3 -m py_compile AgentResourceOfficer/__init__.py && echo OK`
 Expected: OK
 
 - [ ] **Step 5: 提交**
 
 ```bash
-cd /Users/jans/workspace/MoviePilot-Plugins
+cd <repo-root>
 git add AgentResourceOfficer/__init__.py
 git commit -m "feat(aro): 新增 hdhive_resource_mode 配置(browser/openapi/auto)
 
@@ -578,13 +578,13 @@ from .services.hdhive_browser import HDHiveBrowserService
 
 - [ ] **Step 5: 语法检查**
 
-Run: `cd /Users/jans/workspace/MoviePilot-Plugins && python3 -m py_compile AgentResourceOfficer/__init__.py && echo OK`
+Run: `cd <repo-root> && python3 -m py_compile AgentResourceOfficer/__init__.py && echo OK`
 Expected: OK
 
 - [ ] **Step 6: 提交**
 
 ```bash
-cd /Users/jans/workspace/MoviePilot-Plugins
+cd <repo-root>
 git add AgentResourceOfficer/__init__.py
 git commit -m "feat(aro): 影巢搜索/解锁按 hdhive_resource_mode 路由(网页/OpenAPI/auto)
 
@@ -623,13 +623,13 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] **Step 2: 构建**
 
-Run: `cd /Users/jans/workspace/MoviePilot-Plugins/AgentResourceOfficer && npm run build 2>&1 | grep -E 'Config-|built'`
+Run: `cd <repo-root>/AgentResourceOfficer && npm run build 2>&1 | grep -E 'Config-|built'`
 Expected: 构建成功，输出新的 `Config-xxxx.js`
 
 - [ ] **Step 3: 提交**
 
 ```bash
-cd /Users/jans/workspace/MoviePilot-Plugins
+cd <repo-root>
 git add AgentResourceOfficer/src/components/Config.vue AgentResourceOfficer/dist
 git commit -m "feat(aro): 影巢资源卡片新增方式下拉(网页/OpenAPI/auto)
 
@@ -646,7 +646,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - [ ] **Step 1: 同步到两个镜像目录**
 
 ```bash
-cd /Users/jans/workspace/MoviePilot-Plugins
+cd <repo-root>
 for dest in plugins/agentresourceofficer plugins.v2/agentresourceofficer; do
   cp AgentResourceOfficer/__init__.py "$dest/__init__.py"
   cp AgentResourceOfficer/services/hdhive_browser.py "$dest/services/hdhive_browser.py"
@@ -659,7 +659,7 @@ echo synced
 - [ ] **Step 2: 部署到本机容器内置 + /config 两处**
 
 ```bash
-cd /Users/jans/workspace/MoviePilot-Plugins
+cd <repo-root>
 docker cp AgentResourceOfficer/services/hdhive_browser.py moviepilot-v2:/app/app/plugins/agentresourceofficer/services/hdhive_browser.py
 docker cp AgentResourceOfficer/__init__.py moviepilot-v2:/app/app/plugins/agentresourceofficer/__init__.py
 docker cp AgentResourceOfficer/src/components/Config.vue moviepilot-v2:/app/app/plugins/agentresourceofficer/src/components/Config.vue
@@ -707,7 +707,7 @@ Expected: `加载插件：AgentResourceOfficer 版本：0.2.92`、`成功加载 
 - [ ] **Step 6: 最终提交（如有同步文件改动）**
 
 ```bash
-cd /Users/jans/workspace/MoviePilot-Plugins
+cd <repo-root>
 git add plugins/agentresourceofficer plugins.v2/agentresourceofficer
 git commit -m "chore(aro): 同步影巢网页方式 P1 到 plugins/ 与 plugins.v2/
 
