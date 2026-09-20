@@ -52,7 +52,6 @@ def check_transfer_history_mp_v3_adapter(module, channel):
         def __init__(self, **kwargs):
             self.__dict__.update(kwargs)
 
-    transfer_db = object()
     calls = {"hash": 0, "title": 0, "page": 0}
     transfer_record = Record(
         id=7,
@@ -94,25 +93,31 @@ def check_transfer_history_mp_v3_adapter(module, channel):
 
     class FakeTransferHistoryOper:
         def __init__(self):
-            self._db = transfer_db
+            self._db = None
 
         def list_by_hash(self, download_hash):
             calls["hash"] += 1
             check("transfer hash value", download_hash == "hash-123")
             return [transfer_record]
 
+        def get_by_title(self, title):
+            calls["title"] += 1
+            check("transfer title value", title)
+            return [transfer_record]
+
+        def list_by_date(self, date):
+            calls["page"] += 1
+            check("transfer earliest date", date == "1970-01-01 00:00:00")
+            return [transfer_record]
+
     class FakeTransferHistory:
         @staticmethod
         def list_by_title(db, title, page=1, count=30, status=None):
-            calls["title"] += 1
-            check("transfer title db", db is transfer_db)
-            return [transfer_record]
+            raise AssertionError("should use TransferHistoryOper.get_by_title")
 
         @staticmethod
         def list_by_page(db, page=1, count=30, status=None):
-            calls["page"] += 1
-            check("transfer page db", db is transfer_db)
-            return [transfer_record]
+            raise AssertionError("should use TransferHistoryOper.list_by_date")
 
     class FakeDownloadHistoryOper:
         _db = None

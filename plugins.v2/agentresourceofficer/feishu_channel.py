@@ -1214,9 +1214,19 @@ class FeishuChannel:
         oper = self._transfer_history_oper()
         db = getattr(oper, "_db", None) if oper is not None else None
         if title:
+            if oper is not None and hasattr(oper, "get_by_title"):
+                records = oper.get_by_title(title) or []
+                if status is not None:
+                    records = [item for item in records if bool(getattr(item, "status", False)) is status]
+                return records
             if db is not None:
                 return TransferHistory.list_by_title(db, title=title, page=1, count=-1, status=status) or []
             return TransferHistory.list_by_title(title=title, page=1, count=-1, status=status) or []
+        if oper is not None and hasattr(oper, "list_by_date"):
+            records = oper.list_by_date("1970-01-01 00:00:00") or []
+            if status is not None:
+                records = [item for item in records if bool(getattr(item, "status", False)) is status]
+            return records
         if db is not None:
             return TransferHistory.list_by_page(db, page=1, count=-1, status=status) or []
         return TransferHistory.list_by_page(page=1, count=-1, status=status) or []
