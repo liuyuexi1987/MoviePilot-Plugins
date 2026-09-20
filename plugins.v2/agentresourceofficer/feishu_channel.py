@@ -47,6 +47,7 @@ DownloadChain = _optional_import("app.chain.download", "DownloadChain")
 DownloadHistoryOper = _optional_import("app.db.downloadhistory_oper", "DownloadHistoryOper")
 DownloadHistory = _optional_import("app.db.models.downloadhistory", "DownloadHistory")
 TransferHistory = _optional_import("app.db.models.transferhistory", "TransferHistory")
+TransferHistoryOper = _optional_import("app.db.transferhistory_oper", "TransferHistoryOper")
 MediaChain = _optional_import("app.chain.media", "MediaChain")
 SearchChain = _optional_import("app.chain.search", "SearchChain")
 SiteOper = _optional_import("app.db.site_oper", "SiteOper")
@@ -1184,6 +1185,42 @@ class FeishuChannel:
             return False
         return None
 
+    @staticmethod
+    def _transfer_history_oper() -> Any:
+        if TransferHistoryOper is None:
+            return None
+        try:
+            return TransferHistoryOper()
+        except Exception:
+            return None
+
+    def _transfer_records_by_hash(self, download_hash: str) -> List[Any]:
+        hash_text = str(download_hash or "").strip()
+        if not hash_text or TransferHistory is None:
+            return []
+        oper = self._transfer_history_oper()
+        if oper is not None and hasattr(oper, "list_by_hash"):
+            return oper.list_by_hash(hash_text) or []
+        return TransferHistory.list_by_hash(download_hash=hash_text) or []
+
+    def _list_transfer_history_records(
+        self,
+        *,
+        title: str = "",
+        status: Optional[bool] = None,
+    ) -> List[Any]:
+        if TransferHistory is None:
+            return []
+        oper = self._transfer_history_oper()
+        db = getattr(oper, "_db", None) if oper is not None else None
+        if title:
+            if db is not None:
+                return TransferHistory.list_by_title(db, title=title, page=1, count=-1, status=status) or []
+            return TransferHistory.list_by_title(title=title, page=1, count=-1, status=status) or []
+        if db is not None:
+            return TransferHistory.list_by_page(db, page=1, count=-1, status=status) or []
+        return TransferHistory.list_by_page(page=1, count=-1, status=status) or []
+
     def _query_download_history(
         self,
         *,
@@ -1236,7 +1273,7 @@ class FeishuChannel:
             items: List[Dict[str, Any]] = []
             for index, record in enumerate(selected_records, start=(page_num - 1) * page_size + 1):
                 task_hash = str(getattr(record, "download_hash", "") or "")
-                transfer_records = TransferHistory.list_by_hash(download_hash=task_hash) if TransferHistory is not None and task_hash else []
+                transfer_records = self._transfer_records_by_hash(task_hash)
                 transfer_success = any(bool(getattr(item, "status", False)) for item in transfer_records or [])
                 transfer_failed = any(not bool(getattr(item, "status", False)) for item in transfer_records or [])
                 if transfer_success:
@@ -1347,11 +1384,11 @@ class FeishuChannel:
                     search_text = title_text
 
             if search_text:
-                records = TransferHistory.list_by_title(title=search_text, page=1, count=-1, status=None) or []
+                records = self._list_transfer_history_records(title=search_text, status=None)
                 if status_bool is not None:
                     records = [item for item in records if bool(getattr(item, "status", False)) is status_bool]
             else:
-                records = TransferHistory.list_by_page(page=1, count=-1, status=status_bool) or []
+                records = self._list_transfer_history_records(status=status_bool)
 
             total = len(records)
             start = (page_num - 1) * page_size

@@ -35,11 +35,11 @@ class FakePlugin:
         return "pan.quark.cn" in str(url or "")
 
 
-def load_channel_class():
+def load_channel_module():
     spec = importlib.util.spec_from_file_location("agent_resource_officer_feishu_channel", MODULE_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.FeishuChannel
+    return module
 
 
 def check(name, condition):
@@ -47,8 +47,109 @@ def check(name, condition):
         raise AssertionError(name)
 
 
+def check_transfer_history_mp_v3_adapter(module, channel):
+    class Record:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    transfer_db = object()
+    calls = {"hash": 0, "title": 0, "page": 0}
+    transfer_record = Record(
+        id=7,
+        title="测试媒体",
+        year="2026",
+        type="movie",
+        category="电影",
+        seasons="",
+        episodes="",
+        mode="copy",
+        status=True,
+        date="2026-09-20 12:00:00",
+        downloader="qb",
+        download_hash="hash-123",
+        src="/downloads/测试媒体.mkv",
+        dest="/media/电影/测试媒体 (2026)/测试媒体.mkv",
+        errmsg="",
+        tmdbid=1,
+        doubanid="",
+    )
+    download_record = Record(
+        id=1,
+        title="测试媒体",
+        year="2026",
+        type="movie",
+        seasons="",
+        episodes="",
+        date="2026-09-20 11:00:00",
+        downloader="qb",
+        download_hash="hash-123",
+        torrent_name="测试媒体.2026.1080p",
+        torrent_site="测试站",
+        username="tester",
+        channel="manual",
+        path="/downloads/测试媒体.mkv",
+        tmdbid=1,
+        doubanid="",
+    )
+
+    class FakeTransferHistoryOper:
+        def __init__(self):
+            self._db = transfer_db
+
+        def list_by_hash(self, download_hash):
+            calls["hash"] += 1
+            check("transfer hash value", download_hash == "hash-123")
+            return [transfer_record]
+
+    class FakeTransferHistory:
+        @staticmethod
+        def list_by_title(db, title, page=1, count=30, status=None):
+            calls["title"] += 1
+            check("transfer title db", db is transfer_db)
+            return [transfer_record]
+
+        @staticmethod
+        def list_by_page(db, page=1, count=30, status=None):
+            calls["page"] += 1
+            check("transfer page db", db is transfer_db)
+            return [transfer_record]
+
+    class FakeDownloadHistoryOper:
+        _db = None
+
+        @staticmethod
+        def list_by_page(page=1, count=30):
+            return [download_record]
+
+    original_values = {
+        "TransferHistory": module.TransferHistory,
+        "TransferHistoryOper": module.TransferHistoryOper,
+        "DownloadHistory": module.DownloadHistory,
+        "DownloadHistoryOper": module.DownloadHistoryOper,
+    }
+    try:
+        module.TransferHistory = FakeTransferHistory
+        module.TransferHistoryOper = FakeTransferHistoryOper
+        module.DownloadHistory = object
+        module.DownloadHistoryOper = FakeDownloadHistoryOper
+        download_result = channel._query_download_history(title="测试媒体")
+        check("mpv3 download history success", download_result["success"] is True)
+        check("mpv3 download history transfer", download_result["items"][0]["transfer_status"] == "success")
+        title_result = channel._query_transfer_history(title="测试媒体")
+        check("mpv3 transfer history title success", title_result["success"] is True)
+        page_result = channel._query_transfer_history(status="all")
+        check("mpv3 transfer history page success", page_result["success"] is True)
+        check("mpv3 transfer hash adapter", calls["hash"] == 1)
+        check("mpv3 transfer title adapter", calls["title"] == 1)
+        check("mpv3 transfer page adapter", calls["page"] == 1)
+    finally:
+        for name, value in original_values.items():
+            setattr(module, name, value)
+
+
 def main():
-    channel_cls = load_channel_class()
+    channel_module = load_channel_module()
+    channel_cls = channel_module.FeishuChannel
     channel = channel_cls(FakePlugin())
     channel.configure({})
     default_whitelist = set(channel_cls.default_command_whitelist())
@@ -78,6 +179,7 @@ def main():
     check("health has recommended_action", "recommended_action" in health)
     check("health has migration_hint", "migration_hint" in health)
     check("default conflict false", health["conflict_warning"] is False)
+    check_transfer_history_mp_v3_adapter(channel_module, channel)
 
     channel.configure({"feishu_enabled": True})
     channel.is_legacy_bridge_running = lambda: True
