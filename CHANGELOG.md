@@ -5,7 +5,7 @@
 - 仓库已经从单一 AI Gateway 插件，收拢为 MoviePilot 资源与智能体插件套件。
 - 当前发布前检查覆盖 2 个可本地安装插件：
   `AIRecognizerEnhancer`、`AgentResourceOfficer`。
-- `AgentResourceOfficer` 已作为新资源主入口，负责影巢、盘搜、115、夸克、内置飞书入口和智能体 Tool 的统一路由。
+- `AgentResourceOfficer` 已作为新资源主入口，负责盘搜、115、夸克、内置飞书入口和智能体 Tool 的统一路由；影巢关站期间相关能力临时下线。
 - 旧插件 `FeishuCommandBridgeLong`、`HdhiveOpenApi`、`QuarkShareSaver` 已迁移到备份仓库，不再作为当前插件市场条目发布。
 - `AIRecognizerEnhancer` 作为新识别增强线，逐步替代旧网关转发链路。
 - 发布流程已补齐 `plugins/`、`plugins.v2/` 同步、元数据校验、语法检查、ZIP 打包和 GitHub Actions CI。
@@ -13,10 +13,11 @@
 ## 当前核心版本
 
 - `AIRecognizerEnhancer`: `0.1.13`
-- `AgentResourceOfficer`: `0.3.1`
+- `AgentResourceOfficer`: `0.3.3`
 
 ## 近期基础设施更新
 
+- `AgentResourceOfficer 0.3.3`：新增夸克转存配置入口；影巢暂时关站，临时隐藏相关页面并停用搜索、转存和签到；发布前兼容检查已对齐 MoviePilot `v3.0.5` 的拆分模块结构。
 - `AgentResourceOfficer 0.3.1`：回退并固定 `p115client` 到 `0.0.8.5.1.1`，避免与 MoviePilot 当前环境和 115 插件依赖版本冲突。
 - `AgentResourceOfficer 0.3.0`：精简 Agent/MCP 暴露工具集，仅保留 12 个业务能力工具，移除 ARO 自建计划、会话和自描述脚手架噪声；保留飞书与 HTTP 端点。
 - `AIRecognizerEnhancer 0.1.13`：收紧失败样本持久化逻辑，修复清空失败样本与自动移除样本后的配置保存一致性。

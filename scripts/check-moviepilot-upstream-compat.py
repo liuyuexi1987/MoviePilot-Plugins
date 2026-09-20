@@ -14,7 +14,10 @@ RAW_BASE = "https://raw.githubusercontent.com/jxxghp/MoviePilot"
 
 CHECKS = {
     "plugin_base": {
-        "path": "app/plugins/__init__.py",
+        "paths": [
+            "app/sdk/plugin/base.py",
+            "app/plugins/__init__.py",
+        ],
         "patterns": [
             r"class\s+_PluginBase\b",
         ],
@@ -29,32 +32,64 @@ CHECKS = {
         ],
     },
     "download_chain": {
-        "path": "app/chain/download.py",
+        "paths": [
+            "app/chain/download/__init__.py",
+            "app/chain/download.py",
+        ],
+        "patterns": [
+            r"DownloadChain",
+        ],
+    },
+    "download_submission": {
+        "paths": [
+            "app/chain/download/submission.py",
+            "app/chain/download.py",
+        ],
         "patterns": [
             r"def\s+download_single\s*\(",
             r"save_path:\s*Optional",
+        ],
+    },
+    "download_batch": {
+        "paths": [
+            "app/chain/download/batch.py",
+            "app/chain/download.py",
+        ],
+        "patterns": [
             r"def\s+batch_download\s*\(",
         ],
     },
     "subscribe_chain": {
-        "path": "app/chain/subscribe.py",
+        "paths": [
+            "app/chain/subscribe/__init__.py",
+            "app/chain/subscribe.py",
+        ],
         "patterns": [
-            r"def\s+add\s*\(",
-            r"'save_path':\s*self\.__get_default_subscribe_config",
+            r"SubscribeChain",
+        ],
+    },
+    "subscribe_add": {
+        "paths": [
+            "app/chain/subscribe/create.py",
+            "app/chain/subscribe.py",
         ],
         "any_patterns": [
             [
-                r"SubscribeOper\(\)\.add",
-                r"(?:add_subscribe|async_add_subscribe)\s*\(",
+                r"def\s+add\s*\(",
+                r"def\s+async_add\s*\(",
             ],
         ],
     },
     "agent_llm_init": {
-        "path": "app/agent/llm/__init__.py",
+        "paths": [
+            "app/agent/llm/__init__.py",
+            "app/runtime/compat/manifest.py",
+        ],
         "any_patterns": [
             [
                 r"from\s+app\.agent\.llm\.helper\s+import\s+LLMHelper",
                 r"[\"']LLMHelper[\"']\s*:\s*[\"']app\.agent\.llm\.helper[\"']",
+                r"target_module\s*=\s*[\"']app\.agent\.llm\.helper[\"']",
             ],
         ],
     },
@@ -152,29 +187,33 @@ def main() -> int:
         text = None
         selected_path = None
         path_errors = []
+        pattern_groups = [[pattern] for pattern in spec.get("patterns", [])]
+        pattern_groups.extend(spec.get("any_patterns", []))
         for path in paths:
             raw_url = f"{RAW_BASE}/{tag}/{path}"
             try:
-                text = fetch_text(raw_url)
-                selected_path = path
-                break
+                candidate_text = fetch_text(raw_url)
             except urllib.error.HTTPError as exc:
                 path_errors.append(f"{path} http_{exc.code}")
+                continue
             except Exception as exc:
                 path_errors.append(f"{path} {exc}")
+                continue
+
+            missing = [
+                " or ".join(group)
+                for group in pattern_groups
+                if not any(re.search(pattern, candidate_text, re.MULTILINE) for pattern in group)
+            ]
+            if missing:
+                path_errors.append(f"{path} missing_patterns={len(missing)}")
+                continue
+
+            text = candidate_text
+            selected_path = path
+            break
         if text is None:
             failures.append(f"{name}: {', '.join(path_errors)}")
-            continue
-
-        pattern_groups = [[pattern] for pattern in spec.get("patterns", [])]
-        pattern_groups.extend(spec.get("any_patterns", []))
-        missing = [
-            " or ".join(group)
-            for group in pattern_groups
-            if not any(re.search(pattern, text, re.MULTILINE) for pattern in group)
-        ]
-        if missing:
-            failures.append(f"{name}: {selected_path} missing_patterns={len(missing)}")
             continue
         checked += 1
 

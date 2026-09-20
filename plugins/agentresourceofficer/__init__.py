@@ -126,9 +126,9 @@ class _RequestContextShim:
 
 class AgentResourceOfficer(_PluginBase):
     plugin_name = "Agent影视助手"
-    plugin_desc = "龙虾agent稳定控制 MP：飞书入口、盘搜/影巢搜索、115/夸克转存、智能评分推荐。"
+    plugin_desc = "龙虾agent稳定控制 MP：飞书入口、盘搜搜索、115/夸克转存、智能评分推荐。"
     plugin_icon = "https://raw.githubusercontent.com/liuyuexi1987/MoviePilot-Plugins/main/icons/agentresourceofficer.png"
-    plugin_version = "0.3.2"
+    plugin_version = "0.3.3"
     moviepilot_tested_version = "v2.11.4"
     moviepilot_tested_release_url = "https://github.com/jxxghp/MoviePilot/releases/tag/v2.11.4"
     request_templates_schema_version = "request_templates.v1"
@@ -138,6 +138,11 @@ class AgentResourceOfficer(_PluginBase):
     plugin_config_prefix = "agentresourceofficer_"
     plugin_order = 40
     auth_level = 1
+
+    # HDHive is temporarily offline. Keep credentials for a later recovery, but
+    # prevent every runtime path from scheduling or requesting the service.
+    HDHIVE_TEMPORARILY_UNAVAILABLE = True
+    HDHIVE_UNAVAILABLE_MESSAGE = "影巢当前暂时关站，搜索、解锁、转存和签到已临时下线。"
 
     _enabled = False
     _notify = True
@@ -156,7 +161,7 @@ class AgentResourceOfficer(_PluginBase):
     _hdhive_default_path = "/待整理"
     _assistant_result_page_size = 10
     _hdhive_candidate_page_size = 10
-    _hdhive_resource_enabled = True
+    _hdhive_resource_enabled = False
     _hdhive_max_unlock_points = 20
     _hdhive_checkin_enabled = False
     _hdhive_checkin_gambler_mode = False
@@ -1185,11 +1190,23 @@ class AgentResourceOfficer(_PluginBase):
         self._hdhive_timeout = self._safe_int(config.get("hdhive_timeout"), 30)
         self._hdhive_default_path = self._normalize_path(config.get("hdhive_default_path") or "/待整理")
         self._hdhive_candidate_page_size = max(5, min(10, self._safe_int(config.get("hdhive_candidate_page_size"), self._assistant_result_page_size)))
-        self._hdhive_resource_enabled = bool(config.get("hdhive_resource_enabled", True))
+        self._hdhive_resource_enabled = (
+            False
+            if self.HDHIVE_TEMPORARILY_UNAVAILABLE
+            else bool(config.get("hdhive_resource_enabled", True))
+        )
         self._hdhive_max_unlock_points = max(0, self._safe_int(config.get("hdhive_max_unlock_points"), 20))
-        self._hdhive_checkin_enabled = bool(config.get("hdhive_checkin_enabled", False))
+        self._hdhive_checkin_enabled = (
+            False
+            if self.HDHIVE_TEMPORARILY_UNAVAILABLE
+            else bool(config.get("hdhive_checkin_enabled", False))
+        )
         self._hdhive_checkin_gambler_mode = bool(config.get("hdhive_checkin_gambler_mode", False))
-        self._hdhive_checkin_once = bool(config.get("hdhive_checkin_once", False))
+        self._hdhive_checkin_once = (
+            False
+            if self.HDHIVE_TEMPORARILY_UNAVAILABLE
+            else bool(config.get("hdhive_checkin_once", False))
+        )
         self._hdhive_checkin_cron = self._clean_text(config.get("hdhive_checkin_cron") or "0 8 * * *")
         self._hdhive_checkin_cookie = self._clean_text(config.get("hdhive_checkin_cookie"))
         self._hdhive_checkin_auto_login = bool(config.get("hdhive_checkin_auto_login", True))
@@ -1486,7 +1503,7 @@ class AgentResourceOfficer(_PluginBase):
         return True, cookie_string, login_message or "影巢自动登录成功"
 
     def _run_hdhive_checkin(self, *, is_gambler: Optional[bool] = None, trigger: str = "Agent影视助手") -> Dict[str, Any]:
-        if not self._hdhive_checkin_enabled:
+        if self.HDHIVE_TEMPORARILY_UNAVAILABLE or not self._hdhive_checkin_enabled:
             return self._hdhive_checkin_disabled_response()
         service = self._ensure_hdhive_service()
         final_gambler_mode = self._hdhive_checkin_gambler_mode if is_gambler is None else bool(is_gambler)
@@ -1627,14 +1644,14 @@ class AgentResourceOfficer(_PluginBase):
         return final_result
 
     def _scheduled_hdhive_checkin(self):
-        if not self._enabled or not self._hdhive_checkin_enabled:
+        if self.HDHIVE_TEMPORARILY_UNAVAILABLE or not self._enabled or not self._hdhive_checkin_enabled:
             return
         result = self._run_hdhive_checkin(trigger="Agent影视助手 定时签到")
         status = "成功" if result.get("success") else "失败"
         logger.info(f"[Agent影视助手] 影巢定时签到{status}: {result.get('message')}")
 
     def _maybe_run_hdhive_checkin_once(self) -> None:
-        if not self._enabled or not self._hdhive_checkin_once:
+        if self.HDHIVE_TEMPORARILY_UNAVAILABLE or not self._enabled or not self._hdhive_checkin_once:
             return
         self._hdhive_checkin_once = False
         try:
@@ -1653,7 +1670,7 @@ class AgentResourceOfficer(_PluginBase):
         threading.Thread(target=_run_once, name="aro-hdhive-checkin-once", daemon=True).start()
 
     def get_service(self) -> List[Dict[str, Any]]:
-        if not self._enabled or not self._hdhive_checkin_enabled or not self._hdhive_checkin_cron:
+        if self.HDHIVE_TEMPORARILY_UNAVAILABLE or not self._enabled or not self._hdhive_checkin_enabled or not self._hdhive_checkin_cron:
             return []
         if CronTrigger is None:
             logger.warning("[Agent影视助手] apscheduler 不可用，无法注册影巢定时签到")
@@ -2202,7 +2219,7 @@ class AgentResourceOfficer(_PluginBase):
                 "path": "/assistant/route",
                 "endpoint": self.api_assistant_route,
                 "methods": ["POST"],
-                "summary": "统一智能入口：盘搜 / 影巢 / 直链分享",
+                "summary": "统一智能入口：盘搜 / 网盘直链分享",
             },
             {
                 "path": "/assistant/pick",
@@ -2384,7 +2401,6 @@ class AgentResourceOfficer(_PluginBase):
 
     def get_page(self) -> List[dict]:
         quark_ready = "已配置" if self._quark_cookie else "未配置"
-        hdhive_ready = "已配置" if self._hdhive_api_key else "未配置"
         p115_health_ok, p115_health, _p115_health_message = self._ensure_p115_service().health()
         cookie_state = p115_health.get("cookie_state") or {}
         if cookie_state.get("valid"):
@@ -2393,11 +2409,9 @@ class AgentResourceOfficer(_PluginBase):
             p115_ready = "已配置但不是扫码会话"
         else:
             p115_ready = "复用 115 助手客户端"
-        hdhive_summary = self._build_hdhive_page_summary()
         feishu_health = self._ensure_feishu_channel().health()
         feishu_state = "已启用" if feishu_health.get("enabled") else "未启用"
         feishu_running = "运行中" if feishu_health.get("running") else "未运行"
-        hdhive_lines = [line.strip() for line in str(hdhive_summary or "").splitlines() if line.strip()]
         p115_cookie_message = cookie_state.get("message") or "当前会话可直接用于 115 直转"
 
         def text_line(text: str, css_class: str = "text-body-2 py-1") -> Dict[str, Any]:
@@ -2454,22 +2468,7 @@ class AgentResourceOfficer(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
-                                "content": [
-                                    status_card(
-                                        "影巢",
-                                        hdhive_ready,
-                                        [
-                                            f"默认目录：{self._hdhive_default_path}",
-                                            *(hdhive_lines[:2] or ["账号：未获取"]),
-                                        ],
-                                        "success" if self._hdhive_api_key else "warning",
-                                    )
-                                ],
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     status_card(
                                         "115",
@@ -2499,7 +2498,7 @@ class AgentResourceOfficer(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     status_card(
                                         "夸克",
@@ -2514,7 +2513,7 @@ class AgentResourceOfficer(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 3},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     status_card(
                                         "飞书",
@@ -3539,6 +3538,8 @@ class AgentResourceOfficer(_PluginBase):
         ok, message = self._check_api_access(request)
         if not ok:
             return {"success": False, "message": message}
+        if self.HDHIVE_TEMPORARILY_UNAVAILABLE:
+            return self._hdhive_resource_disabled_response()
 
         service = self._ensure_hdhive_service()
         ping_ok, result, ping_message, _status_code = service.request("GET", "/api/open/ping")
@@ -3570,6 +3571,8 @@ class AgentResourceOfficer(_PluginBase):
         ok, message = self._check_api_access(request)
         if not ok:
             return {"success": False, "message": message}
+        if self.HDHIVE_TEMPORARILY_UNAVAILABLE:
+            return self._hdhive_resource_disabled_response()
         if not self._enabled:
             return {"success": False, "message": "插件未启用"}
 
@@ -3615,6 +3618,8 @@ class AgentResourceOfficer(_PluginBase):
         ok, message = self._check_api_access(request)
         if not ok:
             return {"success": False, "message": message}
+        if self.HDHIVE_TEMPORARILY_UNAVAILABLE:
+            return self._hdhive_resource_disabled_response()
         if not self._enabled:
             return {"success": False, "message": "插件未启用"}
 
@@ -3629,6 +3634,8 @@ class AgentResourceOfficer(_PluginBase):
         ok, message = self._check_api_access(request)
         if not ok:
             return {"success": False, "message": message}
+        if self.HDHIVE_TEMPORARILY_UNAVAILABLE:
+            return self._hdhive_resource_disabled_response()
         if not self._enabled:
             return {"success": False, "message": "插件未启用"}
 
@@ -3643,6 +3650,8 @@ class AgentResourceOfficer(_PluginBase):
         ok, message = self._check_api_access(request)
         if not ok:
             return {"success": False, "message": message}
+        if self.HDHIVE_TEMPORARILY_UNAVAILABLE:
+            return self._hdhive_resource_disabled_response()
         if not self._enabled:
             return {"success": False, "message": "插件未启用"}
 
@@ -3871,16 +3880,17 @@ class AgentResourceOfficer(_PluginBase):
     def _hdhive_resource_disabled_response(self) -> Dict[str, Any]:
         return {
             "success": False,
-            "message": "影巢资源入口已关闭：当前不会执行影巢搜索、解锁或转存。可在插件设置中开启“影巢资源搜索/解锁”。",
+            "message": self.HDHIVE_UNAVAILABLE_MESSAGE,
             "data": {
                 "provider": "hdhive",
                 "resource_enabled": False,
-                "error_code": "hdhive_resource_disabled",
+                "temporarily_unavailable": self.HDHIVE_TEMPORARILY_UNAVAILABLE,
+                "error_code": "hdhive_temporarily_unavailable",
             },
         }
 
     def _ensure_hdhive_resource_enabled(self) -> Tuple[bool, Dict[str, Any]]:
-        if self._hdhive_resource_enabled:
+        if not self.HDHIVE_TEMPORARILY_UNAVAILABLE and self._hdhive_resource_enabled:
             return True, {}
         return False, self._hdhive_resource_disabled_response()
 
@@ -3991,11 +4001,12 @@ class AgentResourceOfficer(_PluginBase):
     def _hdhive_checkin_disabled_response(self) -> Dict[str, Any]:
         return {
             "success": False,
-            "message": "影巢签到入口已关闭：如需执行签到，请先在插件设置中开启“影巢签到”。",
+            "message": self.HDHIVE_UNAVAILABLE_MESSAGE,
             "data": {
                 "provider": "hdhive",
                 "checkin_enabled": False,
-                "error_code": "hdhive_checkin_disabled",
+                "temporarily_unavailable": self.HDHIVE_TEMPORARILY_UNAVAILABLE,
+                "error_code": "hdhive_temporarily_unavailable",
             },
         }
 

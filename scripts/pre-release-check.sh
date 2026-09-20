@@ -295,7 +295,12 @@ def resolve_with_mirror_fallback(md_file: Path, target: str) -> Path:
     return direct
 
 for md_file in sorted(Path(".").rglob("*.md")):
-    if ".git" in md_file.parts or md_file.name.startswith("SESSION_HANDOFF_"):
+    if (
+        ".git" in md_file.parts
+        or ".codex" in md_file.parts
+        or "node_modules" in md_file.parts
+        or md_file.name.startswith("SESSION_HANDOFF_")
+    ):
         continue
     text = md_file.read_text(encoding="utf-8", errors="ignore")
     for raw_link in re.findall(r"!?\[[^\]]*\]\(([^)]+)\)", text):
@@ -333,7 +338,13 @@ failed = []
 for path in sorted(Path(".").rglob("*")):
     if not path.is_file():
         continue
-    if ".git" in path.parts or "dist" in path.parts or "__pycache__" in path.parts:
+    if (
+        ".git" in path.parts
+        or ".codex" in path.parts
+        or "dist" in path.parts
+        or "node_modules" in path.parts
+        or "__pycache__" in path.parts
+    ):
         continue
     if path.name.startswith("SESSION_HANDOFF_") or path.suffix in {".pyc", ".pyo"}:
         continue
