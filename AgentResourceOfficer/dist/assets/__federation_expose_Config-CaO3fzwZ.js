@@ -366,31 +366,9 @@ async function loadStorageHealth() {
   await Promise.all([loadP115Health(), loadQuarkHealth()]);
 }
 
-async function loadLatestConfig() {
-  if (!props.api?.get) return false
-  try {
-    const response = await withTimeout(
-      props.api.get(`${pluginBase.value}/config/get`),
-      12000,
-      '加载配置超时'
-    );
-    const result = unwrapResponse(response);
-    if (result?.success && result.data) {
-      config.value = cloneConfig(result.data);
-      if (!config.value.p115_client_type) config.value.p115_client_type = 'alipaymini';
-      return true
-    }
-  } catch (err) {
-    console.error('加载 Agent影视助手 配置失败:', err);
-  }
-  return false
-}
-
-onMounted(async () => {
+onMounted(() => {
   config.value = cloneConfig(props.initialConfig);
   if (!config.value.p115_client_type) config.value.p115_client_type = 'alipaymini';
-  await loadLatestConfig();
-  loadStorageHealth();
 });
 
 onBeforeUnmount(clearQrTimer);
@@ -1539,6 +1517,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-27b493a4"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-cd8d467a"]]);
 
 export { Config as default };

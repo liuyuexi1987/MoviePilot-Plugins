@@ -63,6 +63,12 @@ def check_quark_settings_health_auth():
         and "ok, message = self._check_api_access(request)" in core
         and "async def api_quark_ui_health" in core,
     )
+    mounted_block = config.split("onMounted(", 1)[1].split("onBeforeUnmount", 1)[0]
+    check(
+        "settings mount makes no authenticated plugin requests",
+        "loadLatestConfig()" not in mounted_block
+        and "loadStorageHealth()" not in mounted_block,
+    )
 
 
 def check_transfer_history_mp_v3_adapter(module, channel):

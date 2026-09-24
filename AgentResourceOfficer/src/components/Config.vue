@@ -320,11 +320,9 @@ async function loadLatestConfig() {
   return false
 }
 
-onMounted(async () => {
+onMounted(() => {
   config.value = cloneConfig(props.initialConfig)
   if (!config.value.p115_client_type) config.value.p115_client_type = 'alipaymini'
-  await loadLatestConfig()
-  loadStorageHealth()
 })
 
 onBeforeUnmount(clearQrTimer)
