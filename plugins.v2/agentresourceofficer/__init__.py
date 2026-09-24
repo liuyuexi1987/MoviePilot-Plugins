@@ -2051,6 +2051,13 @@ class AgentResourceOfficer(_PluginBase):
                 "summary": "检查 Agent影视助手 的夸克配置",
             },
             {
+                "path": "/quark/ui/health",
+                "endpoint": self.api_quark_ui_health,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "设置页检查 Agent影视助手 的夸克配置",
+            },
+            {
                 "path": "/quark/transfer",
                 "endpoint": self.api_quark_transfer,
                 "methods": ["POST"],
@@ -3488,6 +3495,12 @@ class AgentResourceOfficer(_PluginBase):
         if not ok:
             return {"success": False, "message": message}
 
+        return self._quark_health_payload()
+
+    async def api_quark_ui_health(self, request: Request):
+        return self._quark_health_payload()
+
+    def _quark_health_payload(self) -> Dict[str, Any]:
         service = self._ensure_quark_service()
         cookie_ok, cookie_message = service.check_cookie()
         return {

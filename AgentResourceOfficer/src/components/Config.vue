@@ -282,7 +282,7 @@ async function loadQuarkHealth() {
   if (!props.api?.get) return
   quarkHealthLoading.value = true
   try {
-    const response = await props.api.get(`${pluginBase.value}/quark/health`)
+    const response = await props.api.get(`${pluginBase.value}/quark/ui/health`)
     const result = unwrapResponse(response)
     if (result?.success) {
       quarkHealth.value = result.data || null

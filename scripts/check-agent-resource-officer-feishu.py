@@ -47,6 +47,24 @@ def check(name, condition):
         raise AssertionError(name)
 
 
+def check_quark_settings_health_auth():
+    core = CORE_PATH.read_text(encoding="utf-8")
+    config = (ROOT / "AgentResourceOfficer" / "src" / "components" / "Config.vue").read_text(encoding="utf-8")
+    check(
+        "quark settings health uses bearer route",
+        '"path": "/quark/ui/health"' in core
+        and '"endpoint": self.api_quark_ui_health' in core
+        and '"auth": "bear"' in core
+        and 'pluginBase.value}/quark/ui/health' in config,
+    )
+    check(
+        "quark external health keeps api key guard",
+        "async def api_quark_health" in core
+        and "ok, message = self._check_api_access(request)" in core
+        and "async def api_quark_ui_health" in core,
+    )
+
+
 def check_transfer_history_mp_v3_adapter(module, channel):
     class Record:
         def __init__(self, **kwargs):
@@ -153,6 +171,7 @@ def check_transfer_history_mp_v3_adapter(module, channel):
 
 
 def main():
+    check_quark_settings_health_auth()
     channel_module = load_channel_module()
     channel_cls = channel_module.FeishuChannel
     channel = channel_cls(FakePlugin())
