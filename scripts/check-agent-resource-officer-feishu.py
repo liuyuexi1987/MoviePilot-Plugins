@@ -65,8 +65,8 @@ def check_quark_settings_health_auth():
     )
     mounted_block = config.split("onMounted(", 1)[1].split("onBeforeUnmount", 1)[0]
     check(
-        "settings mount makes no authenticated plugin requests",
-        "loadLatestConfig()" not in mounted_block
+        "settings mount only loads persisted config",
+        "await loadLatestConfig()" in mounted_block
         and "loadStorageHealth()" not in mounted_block,
     )
 

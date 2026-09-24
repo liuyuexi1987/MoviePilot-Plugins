@@ -13,10 +13,11 @@
 ## 当前核心版本
 
 - `AIRecognizerEnhancer`: `0.1.13`
-- `AgentResourceOfficer`: `0.3.4`
+- `AgentResourceOfficer`: `0.3.5`
 
 ## 近期基础设施更新
 
+- `AgentResourceOfficer 0.3.5`：修复部分 MoviePilot v3 未向自定义设置页传入初始配置时，实际已启用却误显示“未启用”的问题；首次打开只读取已保存配置，不自动探测网盘状态。
 - `AgentResourceOfficer 0.3.4`：修复 Vue 设置页打开时夸克健康检查走 API Key 鉴权、触发 MoviePilot 退出登录的问题；新增 Bearer 专用健康接口，并让首次打开不再发插件鉴权请求。
 - `AgentResourceOfficer 0.3.3`：新增夸克转存配置入口；影巢暂时关站，临时隐藏相关页面并停用搜索、转存和签到；发布前兼容检查已对齐 MoviePilot `v3.0.5` 的拆分模块结构。
 - `AgentResourceOfficer 0.3.1`：回退并固定 `p115client` 到 `0.0.8.5.1.1`，避免与 MoviePilot 当前环境和 115 插件依赖版本冲突。

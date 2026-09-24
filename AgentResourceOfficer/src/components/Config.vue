@@ -320,9 +320,12 @@ async function loadLatestConfig() {
   return false
 }
 
-onMounted(() => {
+onMounted(async () => {
   config.value = cloneConfig(props.initialConfig)
   if (!config.value.p115_client_type) config.value.p115_client_type = 'alipaymini'
+  // Some MoviePilot v3 builds do not inject initialConfig into federation pages.
+  // Read the persisted plugin config, but leave all storage health probes user-triggered.
+  await loadLatestConfig()
 })
 
 onBeforeUnmount(clearQrTimer)

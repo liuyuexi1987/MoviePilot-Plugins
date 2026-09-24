@@ -28,11 +28,12 @@
     "name": "Agent影视助手",
     "description": "龙虾agent稳定控制 MP：飞书入口、盘搜搜索、115/夸克转存、智能评分推荐。",
     "labels": "Agent,115,夸克,Quark,智能体,转存",
-    "version": "0.3.4",
+    "version": "0.3.5",
     "icon": "agentresourceofficer.png",
     "author": "liuyuexi1987",
     "level": 1,
     "history": {
+      "0.3.5": "修复部分 MoviePilot v3 未向自定义设置页传入初始配置时，实际已启用却误显示“未启用”的问题；首次打开只读取已保存配置，不自动探测网盘状态。",
       "0.3.4": "修复打开 Vue 设置页会因夸克健康检查走错鉴权而退出 MoviePilot：设置页改用 Bearer 专用健康接口，首次打开不再发插件鉴权请求。",
       "0.3.3": "新增夸克转存配置入口；影巢暂时关站，临时隐藏相关页面并停用搜索、转存和签到。",
       "0.3.2": "修复 MoviePilot 3.0.4/Python 3.14 下 p115client 旧固定版本已下架导致插件无法安装的问题，改为兼容当前可用版本。",

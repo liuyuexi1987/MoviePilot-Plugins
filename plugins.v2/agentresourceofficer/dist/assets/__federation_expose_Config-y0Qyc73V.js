@@ -366,9 +366,32 @@ async function loadStorageHealth() {
   await Promise.all([loadP115Health(), loadQuarkHealth()]);
 }
 
-onMounted(() => {
+async function loadLatestConfig() {
+  if (!props.api?.get) return false
+  try {
+    const response = await withTimeout(
+      props.api.get(`${pluginBase.value}/config/get`),
+      12000,
+      '加载配置超时'
+    );
+    const result = unwrapResponse(response);
+    if (result?.success && result.data) {
+      config.value = cloneConfig(result.data);
+      if (!config.value.p115_client_type) config.value.p115_client_type = 'alipaymini';
+      return true
+    }
+  } catch (err) {
+    console.error('加载 Agent影视助手 配置失败:', err);
+  }
+  return false
+}
+
+onMounted(async () => {
   config.value = cloneConfig(props.initialConfig);
   if (!config.value.p115_client_type) config.value.p115_client_type = 'alipaymini';
+  // Some MoviePilot v3 builds do not inject initialConfig into federation pages.
+  // Read the persisted plugin config, but leave all storage health probes user-triggered.
+  await loadLatestConfig();
 });
 
 onBeforeUnmount(clearQrTimer);
@@ -1517,6 +1540,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-cd8d467a"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0cc2bc3a"]]);
 
 export { Config as default };
